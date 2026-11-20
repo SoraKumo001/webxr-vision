@@ -6,6 +6,7 @@ import { SpatialButton, SpatialTextPanel } from './SpatialPanel';
 
 export interface DashboardCallbacks {
   onSelectMode: (modeId: TrainingModeId) => void;
+  onStartAutoMode: () => void;
   onStopTraining: () => void;
   onHideTrainingUi: () => void;
   onToggleXRDisplay: () => void;
@@ -69,20 +70,20 @@ export class DashboardHUD {
     this.headerPanel.mesh.position.set(0, 0.58, -1.85);
     this.menuGroup.add(this.headerPanel.mesh);
 
-    // 2x2 Grid of Training Mode Cards + Featured Relaxation Banner
+    // 2x2 Grid of Training Mode Cards + Row 2 (Auto Mode + Aquatic Relaxation)
     MODE_META.forEach((meta, idx) => {
-      const isFeatured = idx === 4;
+      const isAquatic = idx === 4;
       const col = idx % 2;
       const row = Math.floor(idx / 2);
-      const x = isFeatured ? 0 : col === 0 ? -0.49 : 0.49;
-      const y = isFeatured ? -0.36 : row === 0 ? 0.21 : -0.09;
+      const x = isAquatic ? 0.49 : col === 0 ? -0.49 : 0.49;
+      const y = isAquatic ? -0.36 : row === 0 ? 0.21 : -0.09;
 
       const btn = new SpatialButton({
-        width: isFeatured ? 1.9 : 0.92,
-        height: isFeatured ? 0.21 : 0.27,
+        width: 0.92,
+        height: isAquatic ? 0.21 : 0.27,
         label: meta.title,
         subLabel: '0回  |  累計 0分0秒',
-        fontSize: isFeatured ? 34 : 36,
+        fontSize: isAquatic ? 30 : 36,
         bgColor: meta.bgColor,
         borderColor: meta.color,
         accentColor: meta.color,
@@ -93,6 +94,21 @@ export class DashboardHUD {
       this.modeButtons.push({ id: meta.id, title: meta.title, btn });
       this.menuInteractives.push(btn.mesh);
     });
+
+    const btnAutoMode = new SpatialButton({
+      width: 0.92,
+      height: 0.21,
+      label: '🔄 オートモード (1〜4連続)',
+      subLabel: '遠近・眼球・回旋・輻輳を順番に自動切替',
+      fontSize: 30,
+      bgColor: '#1e1b4b',
+      borderColor: '#f472b6',
+      accentColor: '#f472b6',
+      onSelect: () => this.callbacks.onStartAutoMode()
+    });
+    btnAutoMode.mesh.position.set(-0.49, -0.36, -1.85);
+    this.menuGroup.add(btnAutoMode.mesh);
+    this.menuInteractives.push(btnAutoMode.mesh);
 
     // Difficulty buttons (Row 1: symmetrically spans [-0.95, +0.95])
     const diffs: { diff: Difficulty; label: string; x: number }[] = [

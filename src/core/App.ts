@@ -26,6 +26,16 @@ export class App {
   private activeMode: ITrainingMode | null = null;
   private difficulty: Difficulty = 'normal';
 
+  private static readonly AUTO_SEQUENCE: TrainingModeId[] = [
+    'focus-stretch',
+    'peripheral',
+    'gabor-patch',
+    'binocular'
+  ];
+  private isAutoMode = false;
+  private autoStepIndex = 0;
+  private autoTotalSeconds = 0;
+
   private readonly headPos = new THREE.Vector3(0, 1.5, 0);
   private readonly headQuat = new THREE.Quaternion();
   private prevTime = performance.now();
@@ -80,6 +90,7 @@ export class App {
 
     this.dashboard = new DashboardHUD(this.storage, {
       onSelectMode: (id) => this.startTraining(id),
+      onStartAutoMode: () => this.startAutoMode(),
       onStopTraining: () => this.stopTraining(),
       onHideTrainingUi: () => {
         if (!this.activeMode) return;
@@ -277,6 +288,20 @@ export class App {
   }
 
   private startTraining(modeId: TrainingModeId): void {
+    this.isAutoMode = false;
+    this.autoStepIndex = 0;
+    this.autoTotalSeconds = 0;
+    this.beginMode(modeId, false);
+  }
+
+  private startAutoMode(): void {
+    this.isAutoMode = true;
+    this.autoStepIndex = 0;
+    this.autoTotalSeconds = 0;
+    this.beginMode(App.AUTO_SEQUENCE[0], false);
+  }
+
+  private beginMode(modeId: TrainingModeId, keepUiHidden: boolean): void {
     const mode = this.modes.get(modeId);
     if (!mode) return;
 
@@ -294,11 +319,60 @@ export class App {
     this.activeMode = mode;
     this.env.setVisible(this.xrManager.getDisplayMode() !== 'mr' && modeId !== 'aquatic-relax');
     this.activeMode.start(this.difficulty, this.headPos, this.headQuat);
-    this.dashboard.updateTrainingHUD(this.activeMode.getHUDState());
+    if (keepUiHidden) {
+      this.activeMode.setUiHidden(true);
+    }
+    this.refreshTrainingHUD();
     this.syncInteractiveTargets();
 
     if (this.footerText) {
-      this.footerText.textContent = `トレーニング実行中: ${mode.name}`;
+      this.footerText.textContent = this.isAutoMode
+        ? `オート実行中 (${this.autoStepIndex + 1}/${App.AUTO_SEQUENCE.length}): ${mode.name}`
+        : `トレーニング実行中: ${mode.name}`;
+    }
+  }
+
+  private refreshTrainingHUD(): void {
+    if (!this.activeMode) return;
+    const state = this.activeMode.getHUDState();
+    if (this.isAutoMode) {
+      state.title = `[オート ${this.autoStepIndex + 1}/${App.AUTO_SEQUENCE.length}] ${state.title}`;
+    }
+    this.dashboard.updateTrainingHUD(state);
+  }
+
+  private advanceOrFinishTraining(): void {
+    if (!this.activeMode) return;
+    if (!this.isAutoMode) {
+      this.stopTraining();
+      return;
+    }
+
+    const wasUiHidden = this.activeMode.isUiHidden();
+    const result = this.activeMode.stop();
+    this.storage.recordSession(result.modeId, result.durationSec, this.difficulty);
+    this.autoTotalSeconds += result.durationSec;
+    this.activeMode = null;
+
+    this.autoStepIndex += 1;
+    if (this.autoStepIndex < App.AUTO_SEQUENCE.length) {
+      this.beginMode(App.AUTO_SEQUENCE[this.autoStepIndex], wasUiHidden);
+      return;
+    }
+
+    this.isAutoMode = false;
+    this.env.setVisible(this.xrManager.getDisplayMode() !== 'mr');
+    const summaryResult = {
+      modeId: result.modeId,
+      durationSec: this.autoTotalSeconds,
+      summary: `オートモード完了 (1〜4連続 合計 ${this.autoTotalSeconds}秒)`
+    };
+    this.audio.playSuccess();
+    this.dashboard.setTrainingActive(false, summaryResult);
+    this.syncInteractiveTargets();
+
+    if (this.footerText) {
+      this.footerText.textContent = `完了: ${summaryResult.summary}`;
     }
   }
 
@@ -309,12 +383,23 @@ export class App {
     this.activeMode = null;
     this.env.setVisible(this.xrManager.getDisplayMode() !== 'mr');
 
+    let finalResult = result;
+    if (this.isAutoMode) {
+      this.autoTotalSeconds += result.durationSec;
+      finalResult = {
+        modeId: result.modeId,
+        durationSec: this.autoTotalSeconds,
+        summary: `オートモード終了 (${this.autoStepIndex + 1}/${App.AUTO_SEQUENCE.length}種目 | 合計 ${this.autoTotalSeconds}秒)`
+      };
+      this.isAutoMode = false;
+    }
+
     this.audio.playSuccess();
-    this.dashboard.setTrainingActive(false, result);
+    this.dashboard.setTrainingActive(false, finalResult);
     this.syncInteractiveTargets();
 
     if (this.footerText) {
-      this.footerText.textContent = `完了: ${result.summary}`;
+      this.footerText.textContent = `完了: ${finalResult.summary}`;
     }
   }
 
@@ -358,10 +443,10 @@ export class App {
       this.hudRefreshTimer += dt;
       if (this.hudRefreshTimer >= 0.15) {
         this.hudRefreshTimer = 0;
-        this.dashboard.updateTrainingHUD(this.activeMode.getHUDState());
+        this.refreshTrainingHUD();
       }
       if (!keepRunning) {
-        this.stopTraining();
+        this.advanceOrFinishTraining();
       }
     }
 
