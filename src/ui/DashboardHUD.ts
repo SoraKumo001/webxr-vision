@@ -7,20 +7,21 @@ import { SpatialButton, SpatialTextPanel } from './SpatialPanel';
 export interface DashboardCallbacks {
   onSelectMode: (modeId: TrainingModeId) => void;
   onStopTraining: () => void;
+  onHideTrainingUi: () => void;
   onToggleXRDisplay: () => void;
   onToggleGaze: () => void;
   onChangeDifficulty: (diff: Difficulty) => void;
   onToggleMute: () => void;
   onRecenter: () => void;
-  onAdjustViewpoint: (right: number, up: number, forward: number) => void;
-  onResetViewpoint: () => void;
+  onAdjustGazePointer: (deltaYawDeg: number, deltaPitchDeg: number) => void;
+  onResetGazePointer: () => void;
 }
 
 const MODE_META: { id: TrainingModeId; title: string; color: string; bgColor?: string }[] = [
-  { id: 'focus-stretch', title: '1. 遠近調節ストレッチ', color: '#0ea5e9' },
-  { id: 'peripheral', title: '2. 動体視力・周辺視野', color: '#10b981' },
-  { id: 'gabor-patch', title: '3. 3Dガボールパッチ', color: '#f59e0b' },
-  { id: 'binocular', title: '4. 両眼視・立体視', color: '#a855f7' },
+  { id: 'focus-stretch', title: '1. 遠近ピントストレッチ', color: '#0ea5e9' },
+  { id: 'peripheral', title: '2. 眼球運動ストレッチ', color: '#10b981' },
+  { id: 'gabor-patch', title: '3. 回旋・スムーズパーシュート', color: '#f59e0b' },
+  { id: 'binocular', title: '4. 輻輳・開散ストレッチ', color: '#a855f7' },
   {
     id: 'aquatic-relax',
     title: '5. 水中リラクゼーション (深海・水槽)',
@@ -46,6 +47,7 @@ export class DashboardHUD {
   private readonly btnGaze: SpatialButton;
   private readonly btnMute: SpatialButton;
   private readonly btnStopTraining: SpatialButton;
+  private readonly btnHideUi: SpatialButton;
 
   private readonly menuInteractives: THREE.Object3D[] = [];
   private readonly trainingInteractives: THREE.Object3D[] = [];
@@ -79,7 +81,7 @@ export class DashboardHUD {
         width: isFeatured ? 1.9 : 0.92,
         height: isFeatured ? 0.21 : 0.27,
         label: meta.title,
-        subLabel: 'ハイスコア: 0 | プレイ: 0回',
+        subLabel: '0回  |  累計 0分0秒',
         fontSize: isFeatured ? 34 : 36,
         bgColor: meta.bgColor,
         borderColor: meta.color,
@@ -92,15 +94,15 @@ export class DashboardHUD {
       this.menuInteractives.push(btn.mesh);
     });
 
-    // Difficulty buttons
+    // Difficulty buttons (Row 1: symmetrically spans [-0.95, +0.95])
     const diffs: { diff: Difficulty; label: string; x: number }[] = [
-      { diff: 'easy', label: 'Easy', x: -0.66 },
-      { diff: 'normal', label: 'Normal', x: -0.34 },
-      { diff: 'hard', label: 'Hard', x: -0.02 }
+      { diff: 'easy', label: 'Easy', x: -0.80 },
+      { diff: 'normal', label: 'Normal', x: -0.46 },
+      { diff: 'hard', label: 'Hard', x: -0.12 }
     ];
     for (const d of diffs) {
       const btn = new SpatialButton({
-        width: 0.29,
+        width: 0.30,
         height: 0.14,
         label: d.label,
         fontSize: 32,
@@ -120,7 +122,7 @@ export class DashboardHUD {
 
     // Settings row buttons
     this.btnGaze = new SpatialButton({
-      width: 0.42,
+      width: 0.48,
       height: 0.14,
       label: '視線操作: ON',
       fontSize: 30,
@@ -128,12 +130,12 @@ export class DashboardHUD {
       accentColor: '#34d399',
       onSelect: () => this.callbacks.onToggleGaze()
     });
-    this.btnGaze.mesh.position.set(0.39, -0.57, -1.85);
+    this.btnGaze.mesh.position.set(0.31, -0.57, -1.85);
     this.menuGroup.add(this.btnGaze.mesh);
     this.menuInteractives.push(this.btnGaze.mesh);
 
     this.btnMute = new SpatialButton({
-      width: 0.28,
+      width: 0.36,
       height: 0.14,
       label: '音: ON',
       fontSize: 30,
@@ -141,12 +143,13 @@ export class DashboardHUD {
       accentColor: '#38bdf8',
       onSelect: () => this.callbacks.onToggleMute()
     });
-    this.btnMute.mesh.position.set(0.78, -0.57, -1.85);
+    this.btnMute.mesh.position.set(0.77, -0.57, -1.85);
     this.menuGroup.add(this.btnMute.mesh);
     this.menuInteractives.push(this.btnMute.mesh);
 
+    // Row 2: symmetrically spans [-0.95, +0.95] with 0.035m gaps
     this.btnDisplayMode = new SpatialButton({
-      width: 0.54,
+      width: 0.56,
       height: 0.14,
       label: '表示: Preview (MR/VR切替)',
       fontSize: 24,
@@ -154,7 +157,7 @@ export class DashboardHUD {
       accentColor: '#38bdf8',
       onSelect: () => this.callbacks.onToggleXRDisplay()
     });
-    this.btnDisplayMode.mesh.position.set(-0.56, -0.75, -1.85);
+    this.btnDisplayMode.mesh.position.set(-0.67, -0.75, -1.85);
     this.menuGroup.add(this.btnDisplayMode.mesh);
     this.menuInteractives.push(this.btnDisplayMode.mesh);
 
@@ -167,59 +170,69 @@ export class DashboardHUD {
       accentColor: '#38bdf8',
       onSelect: () => this.callbacks.onRecenter()
     });
-    btnRecenter.mesh.position.set(-0.06, -0.75, -1.85);
+    btnRecenter.mesh.position.set(-0.165, -0.75, -1.85);
     this.menuGroup.add(btnRecenter.mesh);
     this.menuInteractives.push(btnRecenter.mesh);
 
     const btnMenuViewDown = new SpatialButton({
-      width: 0.22,
+      width: 0.26,
       height: 0.14,
-      label: '視点 -高',
-      fontSize: 25,
+      label: 'ポインタ ▼',
+      fontSize: 23,
       borderColor: '#64748b',
       accentColor: '#38bdf8',
       gazeDwellSeconds: 0.45,
-      onSelect: () => this.callbacks.onAdjustViewpoint(0, -0.05, 0)
+      onSelect: () => this.callbacks.onAdjustGazePointer(0, -1.0)
     });
-    btnMenuViewDown.mesh.position.set(0.27, -0.75, -1.85);
+    btnMenuViewDown.mesh.position.set(0.19, -0.75, -1.85);
     this.menuGroup.add(btnMenuViewDown.mesh);
     this.menuInteractives.push(btnMenuViewDown.mesh);
 
     const btnMenuViewUp = new SpatialButton({
-      width: 0.22,
+      width: 0.26,
       height: 0.14,
-      label: '視点 +高',
-      fontSize: 25,
+      label: 'ポインタ ▲',
+      fontSize: 23,
       borderColor: '#64748b',
       accentColor: '#38bdf8',
       gazeDwellSeconds: 0.45,
-      onSelect: () => this.callbacks.onAdjustViewpoint(0, 0.05, 0)
+      onSelect: () => this.callbacks.onAdjustGazePointer(0, 1.0)
     });
-    btnMenuViewUp.mesh.position.set(0.51, -0.75, -1.85);
+    btnMenuViewUp.mesh.position.set(0.485, -0.75, -1.85);
     this.menuGroup.add(btnMenuViewUp.mesh);
     this.menuInteractives.push(btnMenuViewUp.mesh);
 
     const btnMenuViewReset = new SpatialButton({
-      width: 0.26,
+      width: 0.30,
       height: 0.14,
-      label: '視点リセット',
-      fontSize: 24,
+      label: 'ポインタ中央',
+      fontSize: 22,
       borderColor: '#64748b',
       accentColor: '#38bdf8',
-      onSelect: () => this.callbacks.onResetViewpoint()
+      onSelect: () => this.callbacks.onResetGazePointer()
     });
-    btnMenuViewReset.mesh.position.set(0.77, -0.75, -1.85);
+    btnMenuViewReset.mesh.position.set(0.80, -0.75, -1.85);
     this.menuGroup.add(btnMenuViewReset.mesh);
     this.menuInteractives.push(btnMenuViewReset.mesh);
 
     // Training HUD (shown during active training)
-    this.statusBanner = new SpatialTextPanel(1.75, 0.26, 1280, 192);
-    this.statusBanner.mesh.position.set(0, 0.92, -2.05);
+    this.statusBanner = new SpatialTextPanel(1.9, 0.26, 1408, 200);
+    this.statusBanner.mesh.position.set(0, 0.90, -2.05);
     this.trainingHudGroup.add(this.statusBanner.mesh);
 
+    // Bottom chrome: two clear rows — session actions, then pointer pad
+    const chromeZ = -1.7;
+    const actionY = -0.76;
+    const pointerY = -0.92;
+    const gap = 0.04;
+
+    const stopW = 0.50;
+    const hideW = 0.40;
+    const actionTotal = stopW + gap + hideW;
+
     this.btnStopTraining = new SpatialButton({
-      width: 0.40,
-      height: 0.14,
+      width: stopW,
+      height: 0.13,
       label: 'メニューへ戻る',
       fontSize: 30,
       bgColor: '#3b0764',
@@ -228,47 +241,59 @@ export class DashboardHUD {
       gazeDwellSeconds: 1.0,
       onSelect: () => this.callbacks.onStopTraining()
     });
-    this.btnStopTraining.mesh.position.set(0, -0.84, -1.7);
+    this.btnStopTraining.mesh.position.set(-actionTotal / 2 + stopW / 2, actionY, chromeZ);
     this.trainingHudGroup.add(this.btnStopTraining.mesh);
     this.trainingInteractives.push(this.btnStopTraining.mesh);
 
-    const trainingViewButtons: { label: string; x: number; dx: number; dy: number; dz: number }[] = [
-      { label: '◀ 左', x: -0.84, dx: -0.10, dy: 0, dz: 0 },
-      { label: '-高', x: -0.66, dx: 0, dy: -0.05, dz: 0 },
-      { label: '+高', x: -0.48, dx: 0, dy: 0.05, dz: 0 },
-      { label: '右 ▶', x: -0.30, dx: 0.10, dy: 0, dz: 0 },
-      { label: '前へ', x: 0.30, dx: 0, dy: 0, dz: 0.10 },
-      { label: '後へ', x: 0.48, dx: 0, dy: 0, dz: -0.10 }
-    ];
-    for (const tv of trainingViewButtons) {
+    this.btnHideUi = new SpatialButton({
+      width: hideW,
+      height: 0.13,
+      label: 'UIを隠す',
+      fontSize: 30,
+      borderColor: '#94a3b8',
+      accentColor: '#38bdf8',
+      gazeDwellSeconds: 0.75,
+      onSelect: () => this.callbacks.onHideTrainingUi()
+    });
+    this.btnHideUi.mesh.position.set(actionTotal / 2 - hideW / 2, actionY, chromeZ);
+    this.trainingHudGroup.add(this.btnHideUi.mesh);
+    this.trainingInteractives.push(this.btnHideUi.mesh);
+
+    // Pointer pad: one compact group [◀][▼][▲][▶][中央]
+    const padW = 0.17;
+    const padH = 0.12;
+    const resetW = 0.34;
+    const padItems: { label: string; width: number; dYaw: number; dPitch: number; reset?: boolean }[] =
+      [
+        { label: '◀', width: padW, dYaw: 1.2, dPitch: 0 },
+        { label: '▼', width: padW, dYaw: 0, dPitch: -1.0 },
+        { label: '▲', width: padW, dYaw: 0, dPitch: 1.0 },
+        { label: '▶', width: padW, dYaw: -1.2, dPitch: 0 },
+        { label: '中央', width: resetW, dYaw: 0, dPitch: 0, reset: true }
+      ];
+    const padTotal =
+      padItems.reduce((sum, item) => sum + item.width, 0) + gap * (padItems.length - 1);
+    let padX = -padTotal / 2;
+    for (const item of padItems) {
+      const x = padX + item.width / 2;
       const btn = new SpatialButton({
-        width: 0.165,
-        height: 0.13,
-        label: tv.label,
-        fontSize: 25,
+        width: item.width,
+        height: padH,
+        label: item.label,
+        fontSize: item.reset ? 26 : 32,
         borderColor: '#475569',
         accentColor: '#38bdf8',
-        gazeDwellSeconds: 0.4,
-        onSelect: () => this.callbacks.onAdjustViewpoint(tv.dx, tv.dy, tv.dz)
+        gazeDwellSeconds: item.reset ? 0.65 : 0.4,
+        onSelect: () => {
+          if (item.reset) this.callbacks.onResetGazePointer();
+          else this.callbacks.onAdjustGazePointer(item.dYaw, item.dPitch);
+        }
       });
-      btn.mesh.position.set(tv.x, -0.84, -1.7);
+      btn.mesh.position.set(x, pointerY, chromeZ);
       this.trainingHudGroup.add(btn.mesh);
       this.trainingInteractives.push(btn.mesh);
+      padX += item.width + gap;
     }
-
-    const btnTrainingReset = new SpatialButton({
-      width: 0.22,
-      height: 0.13,
-      label: '視点戻す',
-      fontSize: 23,
-      borderColor: '#475569',
-      accentColor: '#38bdf8',
-      gazeDwellSeconds: 0.65,
-      onSelect: () => this.callbacks.onResetViewpoint()
-    });
-    btnTrainingReset.mesh.position.set(0.69, -0.84, -1.7);
-    this.trainingHudGroup.add(btnTrainingReset.mesh);
-    this.trainingInteractives.push(btnTrainingReset.mesh);
 
     this.refreshMenuStats();
     this.refreshControls();
@@ -333,9 +358,11 @@ export class DashboardHUD {
 
     for (const item of this.modeButtons) {
       const m = stats.modes[item.id];
+      const mins = Math.floor(m.totalSeconds / 60);
+      const secs = m.totalSeconds % 60;
       item.btn.setLabel(
         item.title,
-        `ベスト: ${m.highScore}点 | 精度: ${m.bestAccuracy}% | ${m.playCount}回`
+        `${m.playCount}回  |  累計 ${mins}分${secs}秒`
       );
     }
 
@@ -349,12 +376,12 @@ export class DashboardHUD {
 
       ctx.fillStyle = '#38bdf8';
       ctx.font = 'bold 54px "Segoe UI", "Hiragino Sans", sans-serif';
-      ctx.fillText('WebXR 視力トレーニング - Quest 3', w / 2, h * 0.27);
+      ctx.fillText('WebXR 目のストレッチ - Quest 3', w / 2, h * 0.27);
 
       ctx.fillStyle = '#cbd5e1';
       ctx.font = '32px "Segoe UI", "Hiragino Sans", sans-serif';
       ctx.fillText(
-        `累計トレーニング時間: ${totalMin}分${totalSec}秒  |  メニューを選択して開始`,
+        `累計ストレッチ時間: ${totalMin}分${totalSec}秒  |  メニューを選択して開始`,
         w / 2,
         h * 0.56
       );
@@ -363,7 +390,7 @@ export class DashboardHUD {
         ctx.fillStyle = '#6ee7b7';
         ctx.font = 'bold 34px "Segoe UI", "Hiragino Sans", sans-serif';
         ctx.fillText(
-          `前回結果: ${this.lastResult.score}点 (${this.lastResult.accuracy}%) — ${this.lastResult.summary}`,
+          `前回: ${this.lastResult.summary}`,
           w / 2,
           h * 0.82
         );
@@ -386,27 +413,29 @@ export class DashboardHUD {
 
       ctx.textAlign = 'left';
       ctx.fillStyle = '#38bdf8';
-      ctx.font = 'bold 38px "Segoe UI", "Hiragino Sans", sans-serif';
-      ctx.fillText(state.title, 36, h * 0.30);
+      ctx.font = 'bold 36px "Segoe UI", "Hiragino Sans", sans-serif';
+      ctx.fillText(state.title, 40, h * 0.28);
 
       ctx.textAlign = 'right';
       ctx.fillStyle = state.remainingSeconds <= 10 ? '#fb7185' : '#f8fafc';
-      ctx.font = 'bold 42px "Segoe UI", sans-serif';
-      ctx.fillText(
-        `残り ${state.remainingSeconds}s  |  スコア ${state.score}  |  精度 ${state.accuracy}%`,
-        w - 36,
-        h * 0.30
-      );
+      ctx.font = 'bold 40px "Segoe UI", sans-serif';
+      ctx.fillText(`残り ${state.remainingSeconds}s`, w - 40, h * 0.28);
 
       ctx.textAlign = 'left';
       ctx.fillStyle = '#e2e8f0';
-      ctx.font = '30px "Segoe UI", "Hiragino Sans", sans-serif';
-      ctx.fillText(state.instruction, 36, h * 0.72);
+      ctx.font = '28px "Segoe UI", "Hiragino Sans", sans-serif';
+      const instructionMaxW = w - 40 - 280;
+      let instruction = state.instruction;
+      while (instruction.length > 4 && ctx.measureText(instruction).width > instructionMaxW) {
+        instruction = instruction.slice(0, -2);
+      }
+      if (instruction !== state.instruction) instruction = `${instruction}…`;
+      ctx.fillText(instruction, 40, h * 0.68);
 
       ctx.textAlign = 'right';
       ctx.fillStyle = '#6ee7b7';
-      ctx.font = 'bold 28px "Segoe UI", "Hiragino Sans", sans-serif';
-      ctx.fillText(state.metricLabel, w - 36, h * 0.72);
+      ctx.font = 'bold 26px "Segoe UI", "Hiragino Sans", sans-serif';
+      ctx.fillText(state.metricLabel, w - 40, h * 0.68);
     });
   }
 

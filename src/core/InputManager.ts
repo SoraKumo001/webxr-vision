@@ -30,6 +30,13 @@ export class InputManager {
   private readonly tempPos = new THREE.Vector3();
   private readonly tempQuat = new THREE.Quaternion();
   private readonly tempDir = new THREE.Vector3();
+  private readonly gazeOffsetEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+  private readonly gazeOffsetQuat = new THREE.Quaternion();
+  private readonly combinedGazeQuat = new THREE.Quaternion();
+
+  private gazeOffsetYaw = 0;
+  private gazeOffsetPitch = 0;
+  private static readonly GAZE_OFFSET_STORAGE_KEY = 'webxr_vision_gaze_offset_v1';
 
   private targets: THREE.Object3D[] = [];
   private controllers: ControllerSlot[] = [];
@@ -56,6 +63,53 @@ export class InputManager {
 
     this.setupXRControllers();
     this.setupDesktopPointer();
+    this.loadGazeOffset();
+  }
+
+  private loadGazeOffset(): void {
+    try {
+      const raw = localStorage.getItem(InputManager.GAZE_OFFSET_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { yaw?: number; pitch?: number };
+      if (typeof parsed.yaw === 'number') {
+        this.gazeOffsetYaw = Math.max(-0.45, Math.min(0.45, parsed.yaw));
+      }
+      if (typeof parsed.pitch === 'number') {
+        this.gazeOffsetPitch = Math.max(-0.45, Math.min(0.45, parsed.pitch));
+      }
+    } catch {
+      // Ignore storage failures
+    }
+  }
+
+  private saveGazeOffset(): void {
+    try {
+      localStorage.setItem(
+        InputManager.GAZE_OFFSET_STORAGE_KEY,
+        JSON.stringify({ yaw: this.gazeOffsetYaw, pitch: this.gazeOffsetPitch })
+      );
+    } catch {
+      // Ignore storage failures
+    }
+  }
+
+  public nudgeGazeOffset(deltaYawDeg: number, deltaPitchDeg: number): void {
+    const maxRad = THREE.MathUtils.degToRad(25);
+    this.gazeOffsetYaw = Math.max(
+      -maxRad,
+      Math.min(maxRad, this.gazeOffsetYaw + THREE.MathUtils.degToRad(deltaYawDeg))
+    );
+    this.gazeOffsetPitch = Math.max(
+      -maxRad,
+      Math.min(maxRad, this.gazeOffsetPitch + THREE.MathUtils.degToRad(deltaPitchDeg))
+    );
+    this.saveGazeOffset();
+  }
+
+  public resetGazeOffset(): void {
+    this.gazeOffsetYaw = 0;
+    this.gazeOffsetPitch = 0;
+    this.saveGazeOffset();
   }
 
   private setupXRControllers(): void {
@@ -329,14 +383,18 @@ export class InputManager {
       }
     }
 
-    // 3. Gaze reticle & dwell selection
+    // 3. Gaze reticle & dwell selection (with calibrated pointer offset)
     this.xrManager.getHeadPose(this.tempPos, this.tempQuat);
-    this.tempDir.set(0, 0, -1).applyQuaternion(this.tempQuat).normalize();
+    this.gazeOffsetEuler.set(this.gazeOffsetPitch, this.gazeOffsetYaw, 0, 'YXZ');
+    this.gazeOffsetQuat.setFromEuler(this.gazeOffsetEuler);
+    this.combinedGazeQuat.copy(this.tempQuat).multiply(this.gazeOffsetQuat);
+
+    this.tempDir.set(0, 0, -1).applyQuaternion(this.combinedGazeQuat).normalize();
     this.raycaster.set(this.tempPos, this.tempDir);
 
     const gazeHit = this.findFirstTargetHit();
     const reticleDist = gazeHit ? Math.min(gazeHit.distance - 0.02, 12) : 2.2;
-    this.reticle.updateTransform(this.tempPos, this.tempDir, this.tempQuat, reticleDist);
+    this.reticle.updateTransform(this.tempPos, this.tempDir, this.combinedGazeQuat, reticleDist);
 
     const allowGazeTrigger =
       this.gazeEnabled &&

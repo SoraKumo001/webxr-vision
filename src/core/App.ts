@@ -56,14 +56,6 @@ export class App {
     const gaborMode = new GaborPatchMode(this.audio);
     const binocularMode = new BinocularMode(this.audio);
     const aquaticMode = new AquaticRelaxMode(this.audio, () => this.xrManager.getDisplayMode());
-    aquaticMode.onUiHiddenChange = (hidden) => {
-      this.dashboard.setMinimalHUD(hidden);
-      const overlay = document.getElementById('overlay');
-      if (overlay) {
-        overlay.style.opacity = hidden ? '0' : '1';
-      }
-      this.syncInteractiveTargets();
-    };
 
     this.modes = new Map<TrainingModeId, ITrainingMode>([
       [focusMode.id, focusMode],
@@ -76,11 +68,24 @@ export class App {
     for (const mode of this.modes.values()) {
       mode.group.visible = false;
       this.xrManager.scene.add(mode.group);
+      mode.onUiHiddenChange = (hidden) => {
+        this.dashboard.setMinimalHUD(hidden);
+        const overlay = document.getElementById('overlay');
+        if (overlay) {
+          overlay.classList.toggle('ui-hidden', hidden);
+        }
+        this.syncInteractiveTargets();
+      };
     }
 
     this.dashboard = new DashboardHUD(this.storage, {
       onSelectMode: (id) => this.startTraining(id),
       onStopTraining: () => this.stopTraining(),
+      onHideTrainingUi: () => {
+        if (!this.activeMode) return;
+        this.activeMode.setUiHidden(true);
+        this.audio.playSelect();
+      },
       onToggleXRDisplay: () => void this.toggleXRDisplay(),
       onToggleGaze: () => {
         this.input.setGazeEnabled(!this.input.isGazeEnabled());
@@ -101,13 +106,12 @@ export class App {
         this.recenterAll();
         this.audio.playSelect();
       },
-      onAdjustViewpoint: (right, up, forward) => {
-        this.xrManager.nudgeViewpoint(right, up, forward);
+      onAdjustGazePointer: (deltaYawDeg, deltaPitchDeg) => {
+        this.input.nudgeGazeOffset(deltaYawDeg, deltaPitchDeg);
         this.audio.playHover();
       },
-      onResetViewpoint: () => {
-        this.xrManager.resetViewpoint();
-        this.recenterAll();
+      onResetGazePointer: () => {
+        this.input.resetGazeOffset();
         this.audio.playSelect();
       }
     });
@@ -195,6 +199,15 @@ export class App {
     this.btnRecenter?.addEventListener('click', () => {
       this.recenterAll();
     });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.code === 'ArrowUp') this.input.nudgeGazeOffset(0, 0.5);
+      else if (e.code === 'ArrowDown') this.input.nudgeGazeOffset(0, -0.5);
+      else if (e.code === 'ArrowLeft') this.input.nudgeGazeOffset(0.5, 0);
+      else if (e.code === 'ArrowRight') this.input.nudgeGazeOffset(-0.5, 0);
+      else if (e.code === 'Digit0') this.input.resetGazeOffset();
+    });
   }
 
   private async detectXRSupport(): Promise<void> {
@@ -260,6 +273,7 @@ export class App {
   private recenterAll(): void {
     this.xrManager.getHeadPose(this.headPos, this.headQuat);
     this.dashboard.recenter(this.headPos, this.headQuat);
+    this.activeMode?.recenter(this.headPos, this.headQuat);
   }
 
   private startTraining(modeId: TrainingModeId): void {
@@ -291,13 +305,7 @@ export class App {
   private stopTraining(): void {
     if (!this.activeMode) return;
     const result = this.activeMode.stop();
-    this.storage.recordSession(
-      result.modeId,
-      result.score,
-      result.accuracy,
-      result.durationSec,
-      this.difficulty
-    );
+    this.storage.recordSession(result.modeId, result.durationSec, this.difficulty);
     this.activeMode = null;
     this.env.setVisible(this.xrManager.getDisplayMode() !== 'mr');
 
@@ -306,13 +314,13 @@ export class App {
     this.syncInteractiveTargets();
 
     if (this.footerText) {
-      this.footerText.textContent = `完了: ${result.score}点 (${result.summary})`;
+      this.footerText.textContent = `完了: ${result.summary}`;
     }
   }
 
   private syncInteractiveTargets(): void {
     if (this.activeMode) {
-      if (this.activeMode instanceof AquaticRelaxMode && this.activeMode.isUiHidden()) {
+      if (this.activeMode.isUiHidden()) {
         this.input.setTargets(this.activeMode.getInteractiveObjects());
       } else {
         this.input.setTargets([

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>Quest 3 WebXR Vision Trainer / 視力トレーニング</title>
+  <title>Quest 3 WebXR Vision Trainer / 目のストレッチ</title>
   <style>
     :root {
       color-scheme: dark;
@@ -44,6 +44,14 @@
       justify-content: space-between;
       padding: 20px;
       z-index: 10;
+      transition: opacity 0.2s ease;
+    }
+    #overlay.ui-hidden {
+      opacity: 0;
+      pointer-events: none !important;
+    }
+    #overlay.ui-hidden .panel {
+      pointer-events: none !important;
     }
     .panel {
       pointer-events: auto;
@@ -196,8 +204,8 @@
   <div id="overlay">
     <div class="panel header">
       <div class="title-group">
-        <h1>Quest 3 WebXR Vision Trainer / 視力トレーニング</h1>
-        <p>遠近調節・動体視力・ガボールパッチ・両眼立体視・水中リラクゼーション（MRパススルー / VR / デスクトップ対応）</p>
+        <h1>Quest 3 WebXR Vision Trainer / 目のストレッチ</h1>
+        <p>遠近ピント・眼球運動・回旋・輻輳開散のストレッチと水中リラクゼーション（MRパススルー / VR / デスクトップ対応）</p>
       </div>
       <div class="status-bar">
         <span id="badge-xr" class="badge">WebXR: 確認中...</span>
@@ -229,8 +237,8 @@
           コントローラーのレーザー＋トリガー、ハンドトラッキングのピンチ、視線カーソル（Gaze・見つめて自動決定）に対応しています。
         </div>
         <div class="guide-item">
-          <strong>3. 視点移動・デスクトップ操作</strong>
-          PC：ドラッグで視点回転、<code>WASD</code>/矢印キー・ホイールで位置移動、<code>Q</code>/<code>E</code>で高さ調整、<code>R</code>でリセット。Quest 3：左スティック移動・右スティック高さ/旋回、空間ボタンでも調整可能。
+          <strong>3. 視線ポインタ・デスクトップ操作</strong>
+          空間内の「ポインタ ▲/▼/◀/▶」ボタン（PCでは矢印キー・<code>0</code>で中央リセット）で視線ポインタ位置を微調整できます。PCはドラッグで視点回転、<code>WASD</code>で移動、<code>R</code>でリセット。
         </div>
       </div>
     </div>

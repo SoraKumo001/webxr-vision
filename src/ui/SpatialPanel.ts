@@ -21,6 +21,9 @@ export class SpatialButton {
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
   private readonly texture: THREE.CanvasTexture;
+  private readonly logicalWidth: number;
+  private readonly logicalHeight: number;
+  private readonly resScale: number;
   private readonly options: Required<Omit<SpatialButtonOptions, 'onSelect'>> & {
     onSelect?: () => void;
   };
@@ -46,9 +49,12 @@ export class SpatialButton {
     };
 
     const pxScale = 512;
+    this.logicalWidth = Math.round(this.options.width * pxScale);
+    this.logicalHeight = Math.round(this.options.height * pxScale);
+    this.resScale = Math.max(1, 256 / this.logicalWidth, 128 / this.logicalHeight);
     this.canvas = document.createElement('canvas');
-    this.canvas.width = Math.max(256, Math.round(this.options.width * pxScale));
-    this.canvas.height = Math.max(128, Math.round(this.options.height * pxScale));
+    this.canvas.width = Math.round(this.logicalWidth * this.resScale);
+    this.canvas.height = Math.round(this.logicalHeight * this.resScale);
 
     const ctx = this.canvas.getContext('2d');
     if (!ctx) {
@@ -120,13 +126,14 @@ export class SpatialButton {
 
   public redraw(): void {
     const { ctx, canvas, options } = this;
-    const w = canvas.width;
-    const h = canvas.height;
+    const w = this.logicalWidth;
+    const h = this.logicalHeight;
     const radius = Math.min(w, h) * 0.14;
 
-    ctx.clearRect(0, 0, w, h);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     ctx.save();
+    ctx.scale(this.resScale, this.resScale);
     this.roundRectPath(ctx, 4, 4, w - 8, h - 8, radius);
     ctx.fillStyle = this.hovered
       ? '#1e293b'

@@ -70,7 +70,6 @@ export class AquaticRelaxMode implements ITrainingMode {
   private readonly btnSpawn: SpatialButton;
   private readonly btnTheme: SpatialButton;
   private readonly btnEnvToggle: SpatialButton;
-  private readonly btnToggleUi: SpatialButton;
   private readonly btnShowUi: SpatialButton;
 
   private entities: AquaticEntity[] = [];
@@ -82,13 +81,11 @@ export class AquaticRelaxMode implements ITrainingMode {
   private durationTotal = 180;
   private remaining = 180;
   private elapsedInMode = 0;
-  private score = 0;
   private watchedCount = 0;
   private breathCycles = 0;
   private lastBreathInhale = true;
   private chimeIndex = 0;
   private hoveredEntity: AquaticEntity | null = null;
-  private hoverTrackTimer = 0;
   private hoveredDistMeters = 0;
   private spawnCounter = 0;
 
@@ -148,11 +145,11 @@ export class AquaticRelaxMode implements ITrainingMode {
     this.arena.add(this.bubblesMesh);
 
     // Breathing & creature inspection guide panel
-    this.relaxPanel = new SpatialTextPanel(1.28, 0.24, 960, 180);
-    this.relaxPanel.mesh.position.set(0, -0.34, -1.85);
+    this.relaxPanel = new SpatialTextPanel(1.28, 0.22, 960, 168);
+    this.relaxPanel.mesh.position.set(0, -0.31, -1.85);
     this.arena.add(this.relaxPanel.mesh);
 
-    // Gentle expanding breathing halo behind the panel
+    // Gentle expanding breathing halo above the panel
     this.breathRing = new THREE.Mesh(
       new THREE.RingGeometry(0.11, 0.128, 48),
       new THREE.MeshBasicMaterial({
@@ -162,15 +159,15 @@ export class AquaticRelaxMode implements ITrainingMode {
         side: THREE.DoubleSide
       })
     );
-    this.breathRing.position.set(0, -0.06, -1.88);
+    this.breathRing.position.set(0, 0.04, -1.88);
     this.arena.add(this.breathRing);
 
-    // Interactive Controls
+    // Interactive Controls (centered symmetrically at x = -0.44, 0, +0.44)
     this.btnSpawn = new SpatialButton({
-      width: 0.38,
-      height: 0.14,
+      width: 0.40,
+      height: 0.13,
       label: '🐠 生き物を呼ぶ',
-      fontSize: 28,
+      fontSize: 27,
       borderColor: '#38d9c0',
       accentColor: '#38d9c0',
       gazeDwellSeconds: 0.7,
@@ -179,14 +176,14 @@ export class AquaticRelaxMode implements ITrainingMode {
         this.audio.playBubbleSound();
       }
     });
-    this.btnSpawn.mesh.position.set(-0.60, -0.58, -1.72);
+    this.btnSpawn.mesh.position.set(-0.44, -0.54, -1.7);
     this.arena.add(this.btnSpawn.mesh);
 
     this.btnTheme = new SpatialButton({
-      width: 0.38,
-      height: 0.14,
+      width: 0.40,
+      height: 0.13,
       label: '🌊 テーマ: サンゴ礁',
-      fontSize: 25,
+      fontSize: 24,
       borderColor: '#38bdf8',
       accentColor: '#38bdf8',
       gazeDwellSeconds: 0.75,
@@ -201,14 +198,14 @@ export class AquaticRelaxMode implements ITrainingMode {
         this.populateSanctuary();
       }
     });
-    this.btnTheme.mesh.position.set(-0.20, -0.58, -1.72);
+    this.btnTheme.mesh.position.set(0, -0.54, -1.7);
     this.arena.add(this.btnTheme.mesh);
 
     this.btnEnvToggle = new SpatialButton({
-      width: 0.38,
-      height: 0.14,
+      width: 0.40,
+      height: 0.13,
       label: '🏝 水底・水面: ON',
-      fontSize: 25,
+      fontSize: 24,
       borderColor: '#2dd4bf',
       accentColor: '#2dd4bf',
       gazeDwellSeconds: 0.75,
@@ -218,30 +215,14 @@ export class AquaticRelaxMode implements ITrainingMode {
         this.applyEnvironmentVisibility();
       }
     });
-    this.btnEnvToggle.mesh.position.set(0.20, -0.58, -1.72);
+    this.btnEnvToggle.mesh.position.set(0.44, -0.54, -1.7);
     this.arena.add(this.btnEnvToggle.mesh);
-
-    this.btnToggleUi = new SpatialButton({
-      width: 0.38,
-      height: 0.14,
-      label: '🙈 UIを隠す',
-      fontSize: 26,
-      borderColor: '#94a3b8',
-      accentColor: '#38d9c0',
-      gazeDwellSeconds: 0.75,
-      onSelect: () => {
-        this.setUiHidden(true);
-        this.audio.playSelect();
-      }
-    });
-    this.btnToggleUi.mesh.position.set(0.60, -0.58, -1.72);
-    this.arena.add(this.btnToggleUi.mesh);
 
     this.btnShowUi = new SpatialButton({
       width: 0.28,
-      height: 0.09,
-      label: '👁 UI表示',
-      fontSize: 24,
+      height: 0.10,
+      label: 'UI表示',
+      fontSize: 25,
       bgColor: '#06121c',
       borderColor: '#38d9c0',
       accentColor: '#38d9c0',
@@ -251,7 +232,7 @@ export class AquaticRelaxMode implements ITrainingMode {
         this.audio.playSelect();
       }
     });
-    this.btnShowUi.mesh.position.set(0, -0.90, -1.72);
+    this.btnShowUi.mesh.position.set(0, -0.85, -1.7);
     this.btnShowUi.mesh.visible = false;
     this.arena.add(this.btnShowUi.mesh);
   }
@@ -260,12 +241,10 @@ export class AquaticRelaxMode implements ITrainingMode {
     this.durationTotal = difficulty === 'easy' ? 120 : difficulty === 'normal' ? 180 : 240;
     this.remaining = this.durationTotal;
     this.elapsedInMode = 0;
-    this.score = 0;
     this.watchedCount = 0;
     this.breathCycles = 0;
     this.lastBreathInhale = true;
     this.hoveredEntity = null;
-    this.hoverTrackTimer = 0;
     this.spawnCounter = 0;
 
     const euler = new THREE.Euler().setFromQuaternion(headQuat, 'YXZ');
@@ -282,6 +261,12 @@ export class AquaticRelaxMode implements ITrainingMode {
     this.populateSanctuary();
   }
 
+  public recenter(headPos: THREE.Vector3, headQuat: THREE.Quaternion): void {
+    const euler = new THREE.Euler().setFromQuaternion(headQuat, 'YXZ');
+    this.arena.position.copy(headPos);
+    this.arena.rotation.set(0, euler.y, 0);
+  }
+
   public setUiHidden(hidden: boolean): void {
     this.uiHidden = hidden;
     this.relaxPanel.mesh.visible = !hidden;
@@ -289,7 +274,6 @@ export class AquaticRelaxMode implements ITrainingMode {
     this.btnSpawn.mesh.visible = !hidden;
     this.btnTheme.mesh.visible = !hidden;
     this.btnEnvToggle.mesh.visible = !hidden;
-    this.btnToggleUi.mesh.visible = !hidden;
     this.btnShowUi.mesh.visible = hidden;
     this.syncInteractiveObjects();
     this.onUiHiddenChange?.(hidden);
@@ -332,8 +316,7 @@ export class AquaticRelaxMode implements ITrainingMode {
       this.interactiveObjects.push(
         this.btnSpawn.mesh,
         this.btnTheme.mesh,
-        this.btnEnvToggle.mesh,
-        this.btnToggleUi.mesh
+        this.btnEnvToggle.mesh
       );
     }
     for (const ent of this.entities) {
@@ -440,7 +423,7 @@ export class AquaticRelaxMode implements ITrainingMode {
       py = sandHeight(px, pz) - 0.04;
     } else if (inFront) {
       px = (rng() - 0.5) * 2.2;
-      pz = -(2.4 + rng() * 1.8);
+      pz = -(2.6 + rng() * 1.8);
       py = (rng() - 0.35) * 0.9;
     } else {
       const ang = rng() * Math.PI * 2;
@@ -513,7 +496,6 @@ export class AquaticRelaxMode implements ITrainingMode {
           }
         },
         onSelect: () => {
-          this.score += 40;
           this.audio.playUnderwaterChime(this.chimeIndex++);
           // Gentle playful swim impulse away/along when tapped
           entity.vel.y += 0.12;
@@ -536,8 +518,6 @@ export class AquaticRelaxMode implements ITrainingMode {
     const duration = Math.max(1, Math.round(this.durationTotal - this.remaining));
     return {
       modeId: this.id,
-      score: Math.round(this.score),
-      accuracy: 100,
       durationSec: duration,
       summary: `深呼吸 ${this.breathCycles}回 | 観察した生き物 ${this.watchedCount}匹`
     };
@@ -557,7 +537,6 @@ export class AquaticRelaxMode implements ITrainingMode {
       this.lastBreathInhale = inhaling;
       if (inhaling) {
         this.breathCycles += 1;
-        this.score += 50;
       }
       this.audio.playBreathCue(inhaling);
     }
@@ -568,19 +547,13 @@ export class AquaticRelaxMode implements ITrainingMode {
     const ringScale = 0.72 + breathNorm * 0.78;
     this.breathRing.scale.setScalar(ringScale);
 
-    // Track continuous smooth pursuit score while gazing at a creature
     if (this.hoveredEntity) {
       this.hoveredDistMeters = this.hoveredEntity.pos.length();
-      this.hoverTrackTimer += dt;
-      if (this.hoverTrackTimer >= 0.35) {
-        this.hoverTrackTimer = 0;
-        this.score += 12;
-      }
     }
 
     // Update 3D swimming steering physics
     const maxRadius = SANCTUARY_RADIUS - 1.2;
-    const personalBubble = 1.45;
+    const personalBubble = 2.15;
     const yMax = SANCTUARY_WATER_Y - 0.5;
 
     for (let i = 0; i < this.entities.length; i++) {
@@ -735,8 +708,6 @@ export class AquaticRelaxMode implements ITrainingMode {
     return {
       title: this.name,
       instruction: '力まずに遠くを泳ぐ魚やクラゲをぼんやり眺め、呼吸をゆっくり整えましょう',
-      score: Math.round(this.score),
-      accuracy: 100,
       remainingSeconds: Math.max(0, Math.ceil(this.remaining)),
       metricLabel: `深呼吸: ${this.breathCycles}回 | 観察: ${this.watchedCount}`
     };

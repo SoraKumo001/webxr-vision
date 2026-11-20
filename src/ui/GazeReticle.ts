@@ -15,9 +15,11 @@ export class GazeReticle {
       color: 0xffffff,
       transparent: true,
       opacity: 0.75,
-      depthTest: false
+      depthTest: false,
+      depthWrite: false
     });
     this.dotMesh = new THREE.Mesh(dotGeo, dotMat);
+    this.dotMesh.renderOrder = 999;
     this.group.add(this.dotMesh);
 
     const ringGeo = new THREE.RingGeometry(0.014, 0.022, 48, 1, Math.PI / 2, 0.001);
@@ -26,9 +28,11 @@ export class GazeReticle {
       transparent: true,
       opacity: 0.95,
       side: THREE.DoubleSide,
-      depthTest: false
+      depthTest: false,
+      depthWrite: false
     });
     this.progressRing = new THREE.Mesh(ringGeo, ringMat);
+    this.progressRing.renderOrder = 999;
     this.progressRing.visible = false;
     this.group.add(this.progressRing);
   }

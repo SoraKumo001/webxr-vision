@@ -9,7 +9,7 @@
     "dev": "vite --host",
     "build": "tsc && vite build",
     "preview": "vite preview --host",
-    "deploy": "tsc && cf deploy"
+    "deploy": "npm run build && cf deploy dist"
   },
   "dependencies": {
     "three": "^0.170.0"

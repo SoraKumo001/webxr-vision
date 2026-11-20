@@ -223,10 +223,10 @@ export class XRManager {
     let forward = 0;
     let up = 0;
 
-    if (this.pressedKeys.has('KeyW') || this.pressedKeys.has('ArrowUp')) forward += 1;
-    if (this.pressedKeys.has('KeyS') || this.pressedKeys.has('ArrowDown')) forward -= 1;
-    if (this.pressedKeys.has('KeyD') || this.pressedKeys.has('ArrowRight')) right += 1;
-    if (this.pressedKeys.has('KeyA') || this.pressedKeys.has('ArrowLeft')) right -= 1;
+    if (this.pressedKeys.has('KeyW')) forward += 1;
+    if (this.pressedKeys.has('KeyS')) forward -= 1;
+    if (this.pressedKeys.has('KeyD')) right += 1;
+    if (this.pressedKeys.has('KeyA')) right -= 1;
     if (this.pressedKeys.has('KeyE') || this.pressedKeys.has('Space')) up += 1;
     if (this.pressedKeys.has('KeyQ') || this.pressedKeys.has('KeyC')) up -= 1;
 
