@@ -56,6 +56,14 @@ export class App {
     const gaborMode = new GaborPatchMode(this.audio);
     const binocularMode = new BinocularMode(this.audio);
     const aquaticMode = new AquaticRelaxMode(this.audio, () => this.xrManager.getDisplayMode());
+    aquaticMode.onUiHiddenChange = (hidden) => {
+      this.dashboard.setMinimalHUD(hidden);
+      const overlay = document.getElementById('overlay');
+      if (overlay) {
+        overlay.style.opacity = hidden ? '0' : '1';
+      }
+      this.syncInteractiveTargets();
+    };
 
     this.modes = new Map<TrainingModeId, ITrainingMode>([
       [focusMode.id, focusMode],
@@ -90,6 +98,15 @@ export class App {
         this.syncDashboardStatus();
       },
       onRecenter: () => {
+        this.recenterAll();
+        this.audio.playSelect();
+      },
+      onAdjustViewpoint: (right, up, forward) => {
+        this.xrManager.nudgeViewpoint(right, up, forward);
+        this.audio.playHover();
+      },
+      onResetViewpoint: () => {
+        this.xrManager.resetViewpoint();
         this.recenterAll();
         this.audio.playSelect();
       }
@@ -166,7 +183,8 @@ export class App {
       this.audio.playSelect();
       this.launchCard?.classList.add('minimized');
       if (this.footerText) {
-        this.footerText.textContent = '3Dプレビュー中: 左クリックで選択 / ドラッグで視点移動 / Rでリセット';
+        this.footerText.textContent =
+          '3Dプレビュー中: 左クリック選択 / ドラッグ視点回転 / WASD移動 / Q・E上下 / ホイール前後 / Rリセット';
       }
     });
 
@@ -294,10 +312,14 @@ export class App {
 
   private syncInteractiveTargets(): void {
     if (this.activeMode) {
-      this.input.setTargets([
-        ...this.activeMode.getInteractiveObjects(),
-        ...this.dashboard.getTrainingInteractiveObjects()
-      ]);
+      if (this.activeMode instanceof AquaticRelaxMode && this.activeMode.isUiHidden()) {
+        this.input.setTargets(this.activeMode.getInteractiveObjects());
+      } else {
+        this.input.setTargets([
+          ...this.activeMode.getInteractiveObjects(),
+          ...this.dashboard.getTrainingInteractiveObjects()
+        ]);
+      }
     } else {
       this.input.setTargets(this.dashboard.getMenuInteractiveObjects());
     }
@@ -318,6 +340,7 @@ export class App {
     const elapsed = (now - this.startTime) / 1000;
     this.prevTime = now;
 
+    this.xrManager.updateViewpointControls(dt);
     this.xrManager.getHeadPose(this.headPos, this.headQuat);
     this.env.update(dt);
     this.input.update(dt);

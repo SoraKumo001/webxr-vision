@@ -12,6 +12,8 @@ export interface DashboardCallbacks {
   onChangeDifficulty: (diff: Difficulty) => void;
   onToggleMute: () => void;
   onRecenter: () => void;
+  onAdjustViewpoint: (right: number, up: number, forward: number) => void;
+  onResetViewpoint: () => void;
 }
 
 const MODE_META: { id: TrainingModeId; title: string; color: string; bgColor?: string }[] = [
@@ -144,30 +146,71 @@ export class DashboardHUD {
     this.menuInteractives.push(this.btnMute.mesh);
 
     this.btnDisplayMode = new SpatialButton({
-      width: 0.62,
+      width: 0.54,
       height: 0.14,
       label: '表示: Preview (MR/VR切替)',
-      fontSize: 28,
+      fontSize: 24,
       borderColor: '#38bdf8',
       accentColor: '#38bdf8',
       onSelect: () => this.callbacks.onToggleXRDisplay()
     });
-    this.btnDisplayMode.mesh.position.set(-0.32, -0.75, -1.85);
+    this.btnDisplayMode.mesh.position.set(-0.56, -0.75, -1.85);
     this.menuGroup.add(this.btnDisplayMode.mesh);
     this.menuInteractives.push(this.btnDisplayMode.mesh);
 
     const btnRecenter = new SpatialButton({
-      width: 0.42,
+      width: 0.38,
       height: 0.14,
       label: 'UI位置リセット',
-      fontSize: 28,
+      fontSize: 26,
       borderColor: '#64748b',
       accentColor: '#38bdf8',
       onSelect: () => this.callbacks.onRecenter()
     });
-    btnRecenter.mesh.position.set(0.28, -0.75, -1.85);
+    btnRecenter.mesh.position.set(-0.06, -0.75, -1.85);
     this.menuGroup.add(btnRecenter.mesh);
     this.menuInteractives.push(btnRecenter.mesh);
+
+    const btnMenuViewDown = new SpatialButton({
+      width: 0.22,
+      height: 0.14,
+      label: '視点 -高',
+      fontSize: 25,
+      borderColor: '#64748b',
+      accentColor: '#38bdf8',
+      gazeDwellSeconds: 0.45,
+      onSelect: () => this.callbacks.onAdjustViewpoint(0, -0.05, 0)
+    });
+    btnMenuViewDown.mesh.position.set(0.27, -0.75, -1.85);
+    this.menuGroup.add(btnMenuViewDown.mesh);
+    this.menuInteractives.push(btnMenuViewDown.mesh);
+
+    const btnMenuViewUp = new SpatialButton({
+      width: 0.22,
+      height: 0.14,
+      label: '視点 +高',
+      fontSize: 25,
+      borderColor: '#64748b',
+      accentColor: '#38bdf8',
+      gazeDwellSeconds: 0.45,
+      onSelect: () => this.callbacks.onAdjustViewpoint(0, 0.05, 0)
+    });
+    btnMenuViewUp.mesh.position.set(0.51, -0.75, -1.85);
+    this.menuGroup.add(btnMenuViewUp.mesh);
+    this.menuInteractives.push(btnMenuViewUp.mesh);
+
+    const btnMenuViewReset = new SpatialButton({
+      width: 0.26,
+      height: 0.14,
+      label: '視点リセット',
+      fontSize: 24,
+      borderColor: '#64748b',
+      accentColor: '#38bdf8',
+      onSelect: () => this.callbacks.onResetViewpoint()
+    });
+    btnMenuViewReset.mesh.position.set(0.77, -0.75, -1.85);
+    this.menuGroup.add(btnMenuViewReset.mesh);
+    this.menuInteractives.push(btnMenuViewReset.mesh);
 
     // Training HUD (shown during active training)
     this.statusBanner = new SpatialTextPanel(1.75, 0.26, 1280, 192);
@@ -175,10 +218,10 @@ export class DashboardHUD {
     this.trainingHudGroup.add(this.statusBanner.mesh);
 
     this.btnStopTraining = new SpatialButton({
-      width: 0.56,
-      height: 0.15,
+      width: 0.40,
+      height: 0.14,
       label: 'メニューへ戻る',
-      fontSize: 34,
+      fontSize: 30,
       bgColor: '#3b0764',
       borderColor: '#f43f5e',
       accentColor: '#fb7185',
@@ -188,6 +231,44 @@ export class DashboardHUD {
     this.btnStopTraining.mesh.position.set(0, -0.84, -1.7);
     this.trainingHudGroup.add(this.btnStopTraining.mesh);
     this.trainingInteractives.push(this.btnStopTraining.mesh);
+
+    const trainingViewButtons: { label: string; x: number; dx: number; dy: number; dz: number }[] = [
+      { label: '◀ 左', x: -0.84, dx: -0.10, dy: 0, dz: 0 },
+      { label: '-高', x: -0.66, dx: 0, dy: -0.05, dz: 0 },
+      { label: '+高', x: -0.48, dx: 0, dy: 0.05, dz: 0 },
+      { label: '右 ▶', x: -0.30, dx: 0.10, dy: 0, dz: 0 },
+      { label: '前へ', x: 0.30, dx: 0, dy: 0, dz: 0.10 },
+      { label: '後へ', x: 0.48, dx: 0, dy: 0, dz: -0.10 }
+    ];
+    for (const tv of trainingViewButtons) {
+      const btn = new SpatialButton({
+        width: 0.165,
+        height: 0.13,
+        label: tv.label,
+        fontSize: 25,
+        borderColor: '#475569',
+        accentColor: '#38bdf8',
+        gazeDwellSeconds: 0.4,
+        onSelect: () => this.callbacks.onAdjustViewpoint(tv.dx, tv.dy, tv.dz)
+      });
+      btn.mesh.position.set(tv.x, -0.84, -1.7);
+      this.trainingHudGroup.add(btn.mesh);
+      this.trainingInteractives.push(btn.mesh);
+    }
+
+    const btnTrainingReset = new SpatialButton({
+      width: 0.22,
+      height: 0.13,
+      label: '視点戻す',
+      fontSize: 23,
+      borderColor: '#475569',
+      accentColor: '#38bdf8',
+      gazeDwellSeconds: 0.65,
+      onSelect: () => this.callbacks.onResetViewpoint()
+    });
+    btnTrainingReset.mesh.position.set(0.69, -0.84, -1.7);
+    this.trainingHudGroup.add(btnTrainingReset.mesh);
+    this.trainingInteractives.push(btnTrainingReset.mesh);
 
     this.refreshMenuStats();
     this.refreshControls();
@@ -209,6 +290,11 @@ export class DashboardHUD {
     if (!active) {
       this.refreshMenuStats();
     }
+  }
+
+  public setMinimalHUD(hidden: boolean): void {
+    if (!this.isTrainingActive) return;
+    this.trainingHudGroup.visible = !hidden;
   }
 
   public isTraining(): boolean {

@@ -28,7 +28,11 @@ export class XRManager {
   private dragMoved = false;
   private lastPointerX = 0;
   private lastPointerY = 0;
+  private readonly pressedKeys = new Set<string>();
   private readonly vrBgColor = new THREE.Color(0x050814);
+  private readonly tempVec = new THREE.Vector3();
+  private readonly tempQuat = new THREE.Quaternion();
+  private readonly tempEuler = new THREE.Euler();
 
   public onDisplayModeChange?: (mode: DisplayMode) => void;
   public onSessionEnded?: () => void;
@@ -102,8 +106,9 @@ export class XRManager {
       this.lastPointerX = e.clientX;
       this.lastPointerY = e.clientY;
 
-      this.yaw -= dx * 0.0035;
-      this.pitch -= dy * 0.0035;
+      const sens = this.isShiftHeld() ? 0.001 : 0.0028;
+      this.yaw -= dx * sens;
+      this.pitch -= dy * sens;
       const maxPitch = Math.PI * 0.42;
       this.pitch = Math.max(-maxPitch, Math.min(maxPitch, this.pitch));
 
@@ -116,10 +121,36 @@ export class XRManager {
     });
 
     window.addEventListener('keydown', (e) => {
-      if ((e.key === 'r' || e.key === 'R') && !this.renderer.xr.isPresenting) {
-        this.resetDesktopCamera();
+      if (this.renderer.xr.isPresenting) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      this.pressedKeys.add(e.code);
+      if (e.key === 'r' || e.key === 'R') {
+        this.resetViewpoint();
       }
     });
+
+    window.addEventListener('keyup', (e) => {
+      this.pressedKeys.delete(e.code);
+    });
+
+    window.addEventListener('blur', () => {
+      this.pressedKeys.clear();
+      this.isDragging = false;
+    });
+
+    canvas.addEventListener(
+      'wheel',
+      (e) => {
+        if (this.renderer.xr.isPresenting) return;
+        const step = -Math.sign(e.deltaY) * (this.isShiftHeld() ? 0.025 : 0.08);
+        this.nudgeViewpoint(0, 0, step);
+      },
+      { passive: true }
+    );
+  }
+
+  private isShiftHeld(): boolean {
+    return this.pressedKeys.has('ShiftLeft') || this.pressedKeys.has('ShiftRight');
   }
 
   public wasPointerDragged(): boolean {
@@ -131,6 +162,77 @@ export class XRManager {
     this.pitch = 0;
     this.camera.position.set(0, 1.5, 0);
     this.camera.quaternion.identity();
+  }
+
+  public resetViewpoint(): void {
+    this.userRig.position.set(0, 0, 0);
+    this.userRig.rotation.set(0, 0, 0);
+    if (!this.renderer.xr.isPresenting) {
+      this.resetDesktopCamera();
+    }
+  }
+
+  public nudgeViewpoint(rightStep: number, upStep: number, forwardStep: number): void {
+    this.getHeadPose(this.tempVec, this.tempQuat);
+    this.tempEuler.setFromQuaternion(this.tempQuat, 'YXZ');
+    const cosY = Math.cos(this.tempEuler.y);
+    const sinY = Math.sin(this.tempEuler.y);
+
+    // Forward in Three.js is (-sinY, 0, -cosY), Right is (cosY, 0, -sinY)
+    this.userRig.position.x += cosY * rightStep - sinY * forwardStep;
+    this.userRig.position.z += -sinY * rightStep - cosY * forwardStep;
+    this.userRig.position.y = Math.max(-1.2, Math.min(3.5, this.userRig.position.y + upStep));
+  }
+
+  public updateViewpointControls(dt: number): void {
+    if (this.renderer.xr.isPresenting) {
+      const session = this.activeSession;
+      if (!session) return;
+
+      const xrMoveSpeed = 1.0;
+      const xrVertSpeed = 0.6;
+      const xrTurnSpeed = 0.9;
+
+      for (const source of session.inputSources) {
+        const gp = source.gamepad;
+        if (!gp || gp.axes.length < 4) continue;
+        const rawX = Math.abs(gp.axes[2]) > 0.12 ? gp.axes[2] : 0;
+        const rawY = Math.abs(gp.axes[3]) > 0.12 ? gp.axes[3] : 0;
+        if (rawX === 0 && rawY === 0) continue;
+
+        // Quadratic curve for fine micro-adjustment at small stick tilts
+        const axX = Math.sign(rawX) * rawX * rawX;
+        const axY = Math.sign(rawY) * rawY * rawY;
+
+        if (source.handedness === 'left') {
+          this.nudgeViewpoint(axX * xrMoveSpeed * dt, 0, -axY * xrMoveSpeed * dt);
+        } else if (source.handedness === 'right') {
+          this.nudgeViewpoint(0, -axY * xrVertSpeed * dt, 0);
+          this.userRig.rotation.y -= axX * xrTurnSpeed * dt;
+        }
+      }
+      return;
+    }
+
+    if (this.pressedKeys.size === 0) return;
+    const fineScale = this.isShiftHeld() ? 0.25 : 1.0;
+    const moveSpeed = 0.85 * fineScale;
+    const vertSpeed = 0.55 * fineScale;
+
+    let right = 0;
+    let forward = 0;
+    let up = 0;
+
+    if (this.pressedKeys.has('KeyW') || this.pressedKeys.has('ArrowUp')) forward += 1;
+    if (this.pressedKeys.has('KeyS') || this.pressedKeys.has('ArrowDown')) forward -= 1;
+    if (this.pressedKeys.has('KeyD') || this.pressedKeys.has('ArrowRight')) right += 1;
+    if (this.pressedKeys.has('KeyA') || this.pressedKeys.has('ArrowLeft')) right -= 1;
+    if (this.pressedKeys.has('KeyE') || this.pressedKeys.has('Space')) up += 1;
+    if (this.pressedKeys.has('KeyQ') || this.pressedKeys.has('KeyC')) up -= 1;
+
+    if (right !== 0 || forward !== 0 || up !== 0) {
+      this.nudgeViewpoint(right * moveSpeed * dt, up * vertSpeed * dt, forward * moveSpeed * dt);
+    }
   }
 
   public async checkSupport(): Promise<XRSupportInfo> {

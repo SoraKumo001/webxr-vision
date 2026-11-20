@@ -70,10 +70,14 @@ export class AquaticRelaxMode implements ITrainingMode {
   private readonly btnSpawn: SpatialButton;
   private readonly btnTheme: SpatialButton;
   private readonly btnEnvToggle: SpatialButton;
+  private readonly btnToggleUi: SpatialButton;
+  private readonly btnShowUi: SpatialButton;
 
   private entities: AquaticEntity[] = [];
   private theme: SanctuaryTheme = 'reef';
   private showEnvironment = true;
+  private uiHidden = false;
+  public onUiHiddenChange?: (hidden: boolean) => void;
 
   private durationTotal = 180;
   private remaining = 180;
@@ -163,10 +167,10 @@ export class AquaticRelaxMode implements ITrainingMode {
 
     // Interactive Controls
     this.btnSpawn = new SpatialButton({
-      width: 0.44,
+      width: 0.38,
       height: 0.14,
       label: '🐠 生き物を呼ぶ',
-      fontSize: 30,
+      fontSize: 28,
       borderColor: '#38d9c0',
       accentColor: '#38d9c0',
       gazeDwellSeconds: 0.7,
@@ -175,14 +179,14 @@ export class AquaticRelaxMode implements ITrainingMode {
         this.audio.playBubbleSound();
       }
     });
-    this.btnSpawn.mesh.position.set(-0.48, -0.58, -1.72);
+    this.btnSpawn.mesh.position.set(-0.60, -0.58, -1.72);
     this.arena.add(this.btnSpawn.mesh);
 
     this.btnTheme = new SpatialButton({
-      width: 0.46,
+      width: 0.38,
       height: 0.14,
       label: '🌊 テーマ: サンゴ礁',
-      fontSize: 28,
+      fontSize: 25,
       borderColor: '#38bdf8',
       accentColor: '#38bdf8',
       gazeDwellSeconds: 0.75,
@@ -197,14 +201,14 @@ export class AquaticRelaxMode implements ITrainingMode {
         this.populateSanctuary();
       }
     });
-    this.btnTheme.mesh.position.set(0, -0.58, -1.72);
+    this.btnTheme.mesh.position.set(-0.20, -0.58, -1.72);
     this.arena.add(this.btnTheme.mesh);
 
     this.btnEnvToggle = new SpatialButton({
-      width: 0.44,
+      width: 0.38,
       height: 0.14,
       label: '🏝 水底・水面: ON',
-      fontSize: 28,
+      fontSize: 25,
       borderColor: '#2dd4bf',
       accentColor: '#2dd4bf',
       gazeDwellSeconds: 0.75,
@@ -214,8 +218,42 @@ export class AquaticRelaxMode implements ITrainingMode {
         this.applyEnvironmentVisibility();
       }
     });
-    this.btnEnvToggle.mesh.position.set(0.48, -0.58, -1.72);
+    this.btnEnvToggle.mesh.position.set(0.20, -0.58, -1.72);
     this.arena.add(this.btnEnvToggle.mesh);
+
+    this.btnToggleUi = new SpatialButton({
+      width: 0.38,
+      height: 0.14,
+      label: '🙈 UIを隠す',
+      fontSize: 26,
+      borderColor: '#94a3b8',
+      accentColor: '#38d9c0',
+      gazeDwellSeconds: 0.75,
+      onSelect: () => {
+        this.setUiHidden(true);
+        this.audio.playSelect();
+      }
+    });
+    this.btnToggleUi.mesh.position.set(0.60, -0.58, -1.72);
+    this.arena.add(this.btnToggleUi.mesh);
+
+    this.btnShowUi = new SpatialButton({
+      width: 0.28,
+      height: 0.09,
+      label: '👁 UI表示',
+      fontSize: 24,
+      bgColor: '#06121c',
+      borderColor: '#38d9c0',
+      accentColor: '#38d9c0',
+      gazeDwellSeconds: 0.75,
+      onSelect: () => {
+        this.setUiHidden(false);
+        this.audio.playSelect();
+      }
+    });
+    this.btnShowUi.mesh.position.set(0, -0.90, -1.72);
+    this.btnShowUi.mesh.visible = false;
+    this.arena.add(this.btnShowUi.mesh);
   }
 
   public start(difficulty: Difficulty, headPos: THREE.Vector3, headQuat: THREE.Quaternion): void {
@@ -237,10 +275,28 @@ export class AquaticRelaxMode implements ITrainingMode {
     // In MR Passthrough, default seabed/dome off so creatures swim inside the user's real room
     const isMR = this.getDisplayMode() === 'mr';
     this.showEnvironment = !isMR;
+    this.setUiHidden(false);
     this.applyEnvironmentVisibility();
 
     this.group.visible = true;
     this.populateSanctuary();
+  }
+
+  public setUiHidden(hidden: boolean): void {
+    this.uiHidden = hidden;
+    this.relaxPanel.mesh.visible = !hidden;
+    this.breathRing.visible = !hidden;
+    this.btnSpawn.mesh.visible = !hidden;
+    this.btnTheme.mesh.visible = !hidden;
+    this.btnEnvToggle.mesh.visible = !hidden;
+    this.btnToggleUi.mesh.visible = !hidden;
+    this.btnShowUi.mesh.visible = hidden;
+    this.syncInteractiveObjects();
+    this.onUiHiddenChange?.(hidden);
+  }
+
+  public isUiHidden(): boolean {
+    return this.uiHidden;
   }
 
   private applyEnvironmentVisibility(): void {
@@ -270,7 +326,16 @@ export class AquaticRelaxMode implements ITrainingMode {
 
   private syncInteractiveObjects(): void {
     this.interactiveObjects.length = 0;
-    this.interactiveObjects.push(this.btnSpawn.mesh, this.btnTheme.mesh, this.btnEnvToggle.mesh);
+    if (this.uiHidden) {
+      this.interactiveObjects.push(this.btnShowUi.mesh);
+    } else {
+      this.interactiveObjects.push(
+        this.btnSpawn.mesh,
+        this.btnTheme.mesh,
+        this.btnEnvToggle.mesh,
+        this.btnToggleUi.mesh
+      );
+    }
     for (const ent of this.entities) {
       if (!ent.grounded) {
         this.interactiveObjects.push(ent.mesh);
@@ -465,6 +530,7 @@ export class AquaticRelaxMode implements ITrainingMode {
   }
 
   public stop(): TrainingResult {
+    this.setUiHidden(false);
     this.clearEntities();
     this.group.visible = false;
     const duration = Math.max(1, Math.round(this.durationTotal - this.remaining));
