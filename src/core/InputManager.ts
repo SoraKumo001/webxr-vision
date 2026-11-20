@@ -238,10 +238,9 @@ export class InputManager {
 
   public setGazeEnabled(enabled: boolean): void {
     this.gazeEnabled = enabled;
+    this.reticle.group.visible = enabled;
     if (!enabled) {
-      this.reticle.setProgress(0);
-      this.gazeTimer = 0;
-      this.gazeTriggeredForCurrentHover = false;
+      this.clearGazeHover();
     }
   }
 
@@ -384,6 +383,12 @@ export class InputManager {
     }
 
     // 3. Gaze reticle & dwell selection (with calibrated pointer offset)
+    this.reticle.group.visible = this.gazeEnabled;
+    if (!this.gazeEnabled) {
+      this.clearGazeHover();
+      return;
+    }
+
     this.xrManager.getHeadPose(this.tempPos, this.tempQuat);
     this.gazeOffsetEuler.set(this.gazeOffsetPitch, this.gazeOffsetYaw, 0, 'YXZ');
     this.gazeOffsetQuat.setFromEuler(this.gazeOffsetEuler);
