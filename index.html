@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Quest 3 WebXR Vision Trainer / 視力トレーニング</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #070b17;
+      --card: rgba(15, 23, 42, 0.85);
+      --border: rgba(56, 189, 248, 0.35);
+      --accent: #38bdf8;
+      --accent-2: #a855f7;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+    }
+    #app-canvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    #overlay {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 20px;
+      z-index: 10;
+    }
+    .panel {
+      pointer-events: auto;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      backdrop-filter: blur(12px);
+      padding: 16px 20px;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+    }
+    .header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .title-group h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      background: linear-gradient(90deg, #38bdf8, #c084fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .title-group p {
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+    .status-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      font-size: 0.78rem;
+    }
+    .badge {
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: rgba(30, 41, 59, 0.9);
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      color: var(--text);
+    }
+    .badge.ok {
+      border-color: rgba(52, 211, 153, 0.5);
+      color: #6ee7b7;
+    }
+    .badge.warn {
+      border-color: rgba(251, 191, 36, 0.5);
+      color: #fcd34d;
+    }
+    .launch-card {
+      max-width: 720px;
+      margin: auto;
+      text-align: center;
+      transition: opacity 0.25s ease, transform 0.25s ease;
+    }
+    .launch-card.minimized {
+      opacity: 0;
+      pointer-events: none;
+      transform: scale(0.96);
+    }
+    .launch-card h2 {
+      font-size: 1.4rem;
+      margin-bottom: 8px;
+    }
+    .launch-card .subtitle {
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.5;
+      margin-bottom: 18px;
+    }
+    .launch-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    button.btn {
+      cursor: pointer;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 12px;
+      padding: 12px 20px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #fff;
+      background: #1e293b;
+      transition: transform 0.15s ease, filter 0.15s ease, border-color 0.15s ease;
+    }
+    button.btn:hover:not(:disabled) {
+      transform: translateY(-2px);
+      filter: brightness(1.12);
+      border-color: var(--accent);
+    }
+    button.btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    button.btn-mr {
+      background: linear-gradient(135deg, #0284c7, #0ea5e9);
+    }
+    button.btn-vr {
+      background: linear-gradient(135deg, #6d28d9, #9333ea);
+    }
+    button.btn-preview {
+      background: linear-gradient(135deg, #0f766e, #14b8a6);
+    }
+    .guide-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 10px;
+      text-align: left;
+      font-size: 0.8rem;
+      color: var(--muted);
+      border-top: 1px solid rgba(148, 163, 184, 0.2);
+      padding-top: 14px;
+    }
+    .guide-item strong {
+      display: block;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+    .footer-hint {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    .footer-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .btn-sm {
+      padding: 6px 12px !important;
+      font-size: 0.78rem !important;
+      border-radius: 8px !important;
+    }
+    @media (max-width: 640px) {
+      #overlay { padding: 12px; }
+      .launch-card { padding: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="app-canvas"></canvas>
+
+  <div id="overlay">
+    <div class="panel header">
+      <div class="title-group">
+        <h1>Quest 3 WebXR Vision Trainer / 視力トレーニング</h1>
+        <p>遠近調節・動体視力・ガボールパッチ・両眼立体視・水中リラクゼーション（MRパススルー / VR / デスクトップ対応）</p>
+      </div>
+      <div class="status-bar">
+        <span id="badge-xr" class="badge">WebXR: 確認中...</span>
+        <span id="badge-mode" class="badge">表示: Preview</span>
+        <span id="badge-input" class="badge">入力: Mouse / Gaze</span>
+      </div>
+    </div>
+
+    <div id="launch-card" class="panel launch-card">
+      <h2>トレーニングを開始する</h2>
+      <p class="subtitle">
+        Meta Quest 3では「MR（パススルー）」または「VR（星空空間）」で実機体験できます。<br />
+        PCブラウザ上でも「Desktop 3D Preview」でマウス＆ドラッグ視点操作により全モードをテスト可能です。
+      </p>
+
+      <div class="launch-buttons">
+        <button id="btn-enter-mr" class="btn btn-mr">Enter MR (Passthrough)</button>
+        <button id="btn-enter-vr" class="btn btn-vr">Enter VR (Space)</button>
+        <button id="btn-desktop-preview" class="btn btn-preview">Desktop 3D Preview</button>
+      </div>
+
+      <div class="guide-grid">
+        <div class="guide-item">
+          <strong>1. Quest 3 接続手順</strong>
+          PCとQuest 3を同じWi-Fiに接続し、Questブラウザで <code>https://&lt;PCのIP&gt;:5173</code> を開きます（自己署名証明書の警告は「詳細設定→進む」で許可）。
+        </div>
+        <div class="guide-item">
+          <strong>2. 3方式の操作に対応</strong>
+          コントローラーのレーザー＋トリガー、ハンドトラッキングのピンチ、視線カーソル（Gaze・見つめて自動決定）に対応しています。
+        </div>
+        <div class="guide-item">
+          <strong>3. デスクトップ操作</strong>
+          プレビュー中：クリックでボタン選択、右ドラッグ（またはShift+ドラッグ）で視点回転、Rキーで視点リセット。
+        </div>
+      </div>
+    </div>
+
+    <div class="panel footer-hint">
+      <span id="footer-status-text">待機中: モードを選択してください</span>
+      <div class="footer-actions">
+        <button id="btn-toggle-overlay" class="btn btn-sm">メニュー表示/非表示</button>
+        <button id="btn-recenter" class="btn btn-sm">UI位置リセット</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
