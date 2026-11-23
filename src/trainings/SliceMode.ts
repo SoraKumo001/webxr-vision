@@ -123,6 +123,8 @@ interface BladeTrack {
   prev: THREE.Vector3;
   curr: THREE.Vector3;
   hasPrev: boolean;
+  swingingFast: boolean;
+  lastSwingSoundAt: number;
   history: THREE.Vector3[];
   historyCount: number;
   mesh: THREE.Mesh;
@@ -205,6 +207,8 @@ function makeBladeRibbon(): BladeTrack {
     prev: new THREE.Vector3(),
     curr: new THREE.Vector3(),
     hasPrev: false,
+    swingingFast: false,
+    lastSwingSoundAt: 0,
     history,
     historyCount: 0,
     mesh,
@@ -761,6 +765,25 @@ export class SliceMode implements ITrainingMode {
 
     const dist = track.curr.distanceTo(track.prev);
     const speed = dist / Math.max(dt, 1e-4);
+
+    if (dist < MAX_SLICE_SEGMENT) {
+      if (speed >= 1.85 && !track.swingingFast) {
+        const nowMs = performance.now();
+        if (nowMs - track.lastSwingSoundAt > 150) {
+          track.lastSwingSoundAt = nowMs;
+          const pan = THREE.MathUtils.clamp(
+            this.spawnPos.copy(track.curr).sub(headPos).dot(this.right) * 1.1,
+            -0.9,
+            0.9
+          );
+          this.audio.playSliceSwing(Math.min(1, speed / 4.0), pan);
+        }
+        track.swingingFast = true;
+      } else if (speed < 1.05) {
+        track.swingingFast = false;
+      }
+    }
+
     if (dist > 0.004 && dist < MAX_SLICE_SEGMENT && speed >= MIN_SLICE_SPEED) {
       this.trySlice(track.prev, track.curr, tip, slotIndex, headPos);
     }
@@ -906,7 +929,12 @@ export class SliceMode implements ITrainingMode {
     this.score += (flyer.isGold ? 3 : 1) * mult;
     this.infoDirty = true;
 
-    this.audio.playSliceHit(this.combo, flyer.isGold);
+    const pan = THREE.MathUtils.clamp(
+      this.spawnPos.copy(flyer.root.position).sub(this.arena.position).dot(this.right) * 0.9,
+      -0.9,
+      0.9
+    );
+    this.audio.playSliceHit(this.combo, flyer.isGold, pan);
     if (slotIndex < 2) {
       this.input.pulseHaptic(slotIndex, flyer.isGold ? 0.9 : 0.65, flyer.isGold ? 65 : 45);
     }
@@ -999,6 +1027,7 @@ export class SliceMode implements ITrainingMode {
     }
     for (const blade of this.blades) {
       blade.hasPrev = false;
+      blade.swingingFast = false;
       blade.historyCount = 0;
       blade.mesh.visible = false;
     }
