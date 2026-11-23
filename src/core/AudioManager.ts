@@ -119,6 +119,42 @@ export class AudioManager {
     osc.stop(now + 0.24);
   }
 
+  public playSliceHit(combo: number, isGold = false): void {
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+    const pentatonic = [523.25, 587.33, 659.25, 783.99, 880.0, 1046.5, 1174.66, 1318.51];
+    const step = Math.min(pentatonic.length - 1, Math.max(0, combo - 1));
+    const baseFreq = pentatonic[step] * (isGold ? 1.25 : 1.0);
+
+    // Crisp crystalline slash tone
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(baseFreq * 1.4, now);
+    osc.frequency.exponentialRampToValueAtTime(baseFreq, now + 0.08);
+    gain.gain.setValueAtTime(0.14, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.17);
+
+    // High harmonic shimmer
+    const overtone = ctx.createOscillator();
+    const overGain = ctx.createGain();
+    overtone.type = 'sine';
+    overtone.frequency.setValueAtTime(baseFreq * 2.0, now);
+    overtone.frequency.exponentialRampToValueAtTime(baseFreq * (isGold ? 3.0 : 2.2), now + 0.12);
+    overGain.gain.setValueAtTime(isGold ? 0.09 : 0.055, now);
+    overGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
+    overtone.connect(overGain);
+    overGain.connect(ctx.destination);
+    overtone.start(now);
+    overtone.stop(now + 0.15);
+  }
+
   public playBreathCue(inhale: boolean): void {
     const ctx = this.ensureContext();
     if (!ctx) return;

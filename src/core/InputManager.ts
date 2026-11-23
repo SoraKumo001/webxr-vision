@@ -27,6 +27,7 @@ interface ControllerSlot {
   connected: boolean;
   isHand: boolean;
   hovered: THREE.Object3D | null;
+  inputSource?: XRInputSource;
 }
 
 export class InputManager {
@@ -173,6 +174,7 @@ export class InputManager {
         const data = (event as unknown as { data?: XRInputSource }).data;
         slot.connected = true;
         slot.isHand = Boolean(data && data.hand);
+        slot.inputSource = data;
         line.visible = true;
         this.setActiveInputKind(slot.isHand ? 'Hand Pinch' : 'Controller');
       });
@@ -180,6 +182,7 @@ export class InputManager {
       controller.addEventListener('disconnected', () => {
         slot.connected = false;
         slot.isHand = false;
+        slot.inputSource = undefined;
         line.visible = false;
         hitDot.visible = false;
         if (slot.hovered) {
@@ -291,6 +294,39 @@ export class InputManager {
       for (const slot of this.controllers) {
         slot.line.visible = false;
       }
+    }
+  }
+
+  public pulseHaptic(slotIndex: number, intensity = 0.65, durationMs = 45): void {
+    const slot = this.controllers[slotIndex];
+    const gamepad = slot?.inputSource?.gamepad as
+      | (Gamepad & {
+          hapticActuators?: { pulse?: (value: number, duration: number) => Promise<boolean> | void }[];
+          vibrationActuator?: {
+            playEffect?: (
+              type: string,
+              params: { duration: number; strongMagnitude: number; weakMagnitude: number }
+            ) => Promise<unknown>;
+          };
+        })
+      | undefined;
+    if (!gamepad) return;
+
+    try {
+      const actuator = gamepad.hapticActuators?.[0];
+      if (actuator && typeof actuator.pulse === 'function') {
+        void actuator.pulse(intensity, durationMs);
+        return;
+      }
+      if (gamepad.vibrationActuator && typeof gamepad.vibrationActuator.playEffect === 'function') {
+        void gamepad.vibrationActuator.playEffect('dual-rumble', {
+          duration: durationMs,
+          strongMagnitude: intensity,
+          weakMagnitude: intensity * 0.6
+        });
+      }
+    } catch {
+      // Ignore unsupported haptic implementations
     }
   }
 

@@ -9,15 +9,16 @@ import { ITrainingMode, TrainingHUDState, TrainingResult } from './ITrainingMode
 import { ModeUiChrome } from './ModeUiChrome';
 
 const DISC_RADIUS = 0.16;
-const HIT_RADIUS = 0.2;
+const HIT_RADIUS = 0.21;
 const MIN_SLICE_SPEED = 1.35;
 const MAX_SLICE_SEGMENT = 0.85;
-const FLYER_POOL = 6;
-const SHARD_POOL = 10;
+const FLYER_POOL = 8;
+const SHARD_POOL = 16;
 const RIBBON_POINTS = 14;
-const WAVE_POOL = 6;
-const SPARK_BURST_POOL = 4;
+const WAVE_POOL = 8;
+const SPARK_BURST_POOL = 6;
 const SPARKS_PER_BURST = 24;
+const GOLD_COLOR = 0xffd166;
 
 const DISC_COLORS = [themeHex.amber, themeHex.seafoam, themeHex.modeFocus] as const;
 
@@ -101,12 +102,16 @@ interface Flyer {
   rim: THREE.MeshStandardMaterial;
   glow: THREE.MeshBasicMaterial;
   active: boolean;
+  isGold: boolean;
+  baseColor: number;
   velocity: THREE.Vector3;
+  curveAccel: THREE.Vector3;
   spin: THREE.Vector3;
 }
 
 interface Shard {
   root: THREE.Group;
+  halfPivot: THREE.Group;
   mat: THREE.MeshStandardMaterial;
   active: boolean;
   velocity: THREE.Vector3;
@@ -290,7 +295,10 @@ function createPuck(radius: number, thickness: number, color: number): Flyer {
     rim,
     glow,
     active: false,
+    isGold: false,
+    baseColor: color,
     velocity: new THREE.Vector3(),
+    curveAccel: new THREE.Vector3(),
     spin: new THREE.Vector3()
   };
 }
@@ -309,11 +317,14 @@ function createChunk(radius: number): Shard {
     mat
   );
   mesh.rotation.x = Math.PI / 2;
+  const halfPivot = new THREE.Group();
+  halfPivot.add(mesh);
   const root = new THREE.Group();
-  root.add(mesh);
+  root.add(halfPivot);
   root.visible = false;
   return {
     root,
+    halfPivot,
     mat,
     active: false,
     velocity: new THREE.Vector3(),
@@ -322,11 +333,17 @@ function createChunk(radius: number): Shard {
   };
 }
 
-function paintFlyer(flyer: Flyer, color: number): void {
+function paintFlyer(flyer: Flyer, color: number, isGold = false): void {
+  flyer.baseColor = color;
+  flyer.isGold = isGold;
   flyer.body.color.setHex(color);
   flyer.body.emissive.setHex(color);
+  flyer.body.emissiveIntensity = isGold ? 0.72 : 0.42;
   flyer.rim.emissive.setHex(color);
+  flyer.rim.emissiveIntensity = isGold ? 1.0 : 0.7;
   flyer.glow.color.setHex(color);
+  flyer.glow.opacity = isGold ? 0.34 : 0.2;
+  flyer.root.scale.setScalar(isGold ? 0.8 : 1.0);
 }
 
 function segmentHitsSphere(
@@ -378,6 +395,9 @@ export class SliceMode implements ITrainingMode {
   private readonly closest = new THREE.Vector3();
   private readonly ribbonTan = new THREE.Vector3();
   private readonly ribbonSide = new THREE.Vector3();
+  private readonly bladeBase = new THREE.Vector3();
+  private readonly bladeTipExt = new THREE.Vector3();
+  private readonly rayEnd = new THREE.Vector3();
   private readonly up = new THREE.Vector3(0, 1, 0);
 
   private difficulty: Difficulty = 'normal';
@@ -385,6 +405,9 @@ export class SliceMode implements ITrainingMode {
   private remaining = 75;
   private score = 0;
   private misses = 0;
+  private combo = 0;
+  private maxCombo = 0;
+  private infoDirty = true;
   private spawnIn = 0.35;
   private running = false;
 
@@ -461,6 +484,9 @@ export class SliceMode implements ITrainingMode {
     this.remaining = this.durationTotal;
     this.score = 0;
     this.misses = 0;
+    this.combo = 0;
+    this.maxCombo = 0;
+    this.infoDirty = true;
     this.spawnIn = 0.35;
     this.running = true;
     this.clearActors();
@@ -483,10 +509,11 @@ export class SliceMode implements ITrainingMode {
     this.clearActors();
     this.groupFade.setImmediate(false);
     const duration = Math.max(1, Math.round(this.durationTotal - this.remaining));
+    const comboNote = this.maxCombo >= 3 ? ` 最大${this.maxCombo}コンボ` : '';
     return {
       modeId: this.id,
       durationSec: duration,
-      summary: `スライス スコア ${this.score}（ミス ${this.misses}） ${duration}秒`
+      summary: `スライス スコア ${this.score}（ミス ${this.misses}${comboNote}） ${duration}秒`
     };
   }
 
@@ -511,25 +538,43 @@ export class SliceMode implements ITrainingMode {
 
     for (const flyer of this.flyers) {
       if (!flyer.active) continue;
+      flyer.velocity.addScaledVector(flyer.curveAccel, dt);
       flyer.root.position.addScaledVector(flyer.velocity, dt);
       flyer.root.rotateX(flyer.spin.x * dt);
       flyer.root.rotateY(flyer.spin.y * dt);
       flyer.root.rotateZ(flyer.spin.z * dt);
       const distSq = flyer.root.position.distanceToSquared(headPos);
       const ahead = this.spawnPos.copy(flyer.root.position).sub(headPos).dot(this.forward);
+
+      // Sweet-spot highlight when the disc enters easy slicing range (0.38m - 1.15m)
+      const inSweetSpot = ahead > 0.1 && distSq >= 0.38 * 0.38 && distSq <= 1.15 * 1.15;
+      if (inSweetSpot) {
+        const pulse = 0.5 + 0.5 * Math.sin(this.remaining * 18);
+        flyer.rim.emissive.setHex(0xffffff);
+        flyer.rim.emissiveIntensity = 1.15 + pulse * 0.45;
+        flyer.glow.opacity = 0.36 + pulse * 0.12;
+      } else {
+        flyer.rim.emissive.setHex(flyer.baseColor);
+        flyer.rim.emissiveIntensity = flyer.isGold ? 1.0 : 0.7;
+        flyer.glow.opacity = flyer.isGold ? 0.34 : 0.2;
+      }
+
       // Drop targets once they reach the face so they never clip the near plane.
       if (ahead < 0.02 || distSq < 0.22 * 0.22) {
         this.deactivateFlyer(flyer);
         this.misses += 1;
+        this.combo = 0;
+        this.infoDirty = true;
+        this.audio.playMiss();
       } else if (distSq > 36) {
         this.deactivateFlyer(flyer);
       }
     }
 
     const tips = this.input.getControllerTips();
-    this.applyBlade(this.blades[0], tips[0], dt);
-    this.applyBlade(this.blades[1], tips[1], dt);
-    this.applyBlade(this.blades[2], this.input.getDesktopBlade(), dt);
+    this.applyBlade(this.blades[0], tips[0], dt, 0, headPos);
+    this.applyBlade(this.blades[1], tips[1], dt, 1, headPos);
+    this.applyBlade(this.blades[2], this.input.getDesktopBlade(), dt, 2, headPos);
 
     for (const shard of this.shards) {
       if (!shard.active) continue;
@@ -579,7 +624,10 @@ export class SliceMode implements ITrainingMode {
       burst.mat.uniforms.uAlpha.value = Math.pow(1 - p, 1.4) * 0.95;
     }
 
-    this.drawInfo();
+    if (this.infoDirty) {
+      this.infoDirty = false;
+      this.drawInfo();
+    }
     return this.remaining > 0;
   }
 
@@ -592,12 +640,18 @@ export class SliceMode implements ITrainingMode {
   }
 
   public getHUDState(): TrainingHUDState {
+    const mult = this.getMultiplier();
+    const comboText = this.combo >= 2 ? `  |  ${this.combo} COMBO (x${mult})` : '';
     return {
       title: this.name,
       instruction: 'コントローラーを振るか、マウスをドラッグして飛んでくる光を切ってください',
       remainingSeconds: Math.max(0, Math.ceil(this.remaining)),
-      metricLabel: `スコア ${this.score}  ミス ${this.misses}`
+      metricLabel: `スコア ${this.score}  ミス ${this.misses}${comboText}`
     };
+  }
+
+  private getMultiplier(): number {
+    return Math.min(3, 1 + Math.floor(this.combo / 5));
   }
 
   private placeArena(headPos: THREE.Vector3, headQuat: THREE.Quaternion): void {
@@ -626,12 +680,27 @@ export class SliceMode implements ITrainingMode {
   }
 
   private trySpawn(headPos: THREE.Vector3): void {
-    if (this.aliveCount() >= maxAlive(this.difficulty)) return;
+    const max = maxAlive(this.difficulty);
+    const alive = this.aliveCount();
+    if (alive >= max) return;
+
+    const doWave = this.difficulty !== 'easy' && alive + 2 <= max && Math.random() < 0.28;
+    if (doWave) {
+      const lateral = 0.42 + Math.random() * 0.28;
+      this.spawnOne(headPos, -lateral, false);
+      this.spawnOne(headPos, lateral, false);
+    } else {
+      const lateral = (Math.random() * 2 - 1) * 0.72;
+      const isGold = Math.random() < 0.16;
+      this.spawnOne(headPos, lateral, isGold);
+    }
+  }
+
+  private spawnOne(headPos: THREE.Vector3, lateral: number, isGold: boolean): void {
     const flyer = this.flyers.find((item) => !item.active);
     if (!flyer) return;
 
-    const dist = 3.1 + Math.random() * 1.5;
-    const lateral = (Math.random() * 2 - 1) * 0.7;
+    const dist = 3.1 + Math.random() * 1.4;
     const height = headPos.y + (Math.random() * 0.45 - 0.18);
     this.spawnPos.copy(headPos).addScaledVector(this.forward, dist).addScaledVector(this.right, lateral);
     this.spawnPos.y = height;
@@ -639,7 +708,16 @@ export class SliceMode implements ITrainingMode {
     this.aim.copy(headPos);
     this.aim.y = headPos.y + (Math.random() * 0.2 - 0.05);
     this.aim.addScaledVector(this.forward, -0.35);
-    flyer.velocity.copy(this.aim).sub(this.spawnPos).normalize().multiplyScalar(flySpeed(this.difficulty));
+    const speed = flySpeed(this.difficulty) * (isGold ? 1.26 : 1.0);
+    flyer.velocity.copy(this.aim).sub(this.spawnPos).normalize().multiplyScalar(speed);
+
+    // Subtle lateral curve on normal/hard for dynamic vision challenge
+    if (this.difficulty !== 'easy' && Math.random() < 0.45) {
+      const curveSign = lateral > 0 ? -1 : 1;
+      flyer.curveAccel.copy(this.right).multiplyScalar(curveSign * (this.difficulty === 'hard' ? 0.26 : 0.16));
+    } else {
+      flyer.curveAccel.set(0, 0, 0);
+    }
 
     flyer.root.position.copy(this.spawnPos);
     flyer.root.lookAt(headPos);
@@ -652,10 +730,17 @@ export class SliceMode implements ITrainingMode {
     );
     flyer.root.visible = true;
     flyer.active = true;
-    paintFlyer(flyer, DISC_COLORS[Math.floor(Math.random() * DISC_COLORS.length)]);
+    const color = isGold ? GOLD_COLOR : DISC_COLORS[Math.floor(Math.random() * DISC_COLORS.length)];
+    paintFlyer(flyer, color, isGold);
   }
 
-  private applyBlade(track: BladeTrack, tip: BladeTip | undefined, dt: number): void {
+  private applyBlade(
+    track: BladeTrack,
+    tip: BladeTip | undefined,
+    dt: number,
+    slotIndex: number,
+    headPos: THREE.Vector3
+  ): void {
     if (!tip?.active) {
       track.hasPrev = false;
       track.historyCount = 0;
@@ -677,7 +762,7 @@ export class SliceMode implements ITrainingMode {
     const dist = track.curr.distanceTo(track.prev);
     const speed = dist / Math.max(dt, 1e-4);
     if (dist > 0.004 && dist < MAX_SLICE_SEGMENT && speed >= MIN_SLICE_SPEED) {
-      this.trySlice(track.prev, track.curr);
+      this.trySlice(track.prev, track.curr, tip, slotIndex, headPos);
     }
 
     if (dist > 0.004 && dist < MAX_SLICE_SEGMENT) {
@@ -754,32 +839,77 @@ export class SliceMode implements ITrainingMode {
     track.mesh.visible = true;
   }
 
-  private trySlice(a: THREE.Vector3, b: THREE.Vector3): void {
+  private trySlice(
+    a: THREE.Vector3,
+    b: THREE.Vector3,
+    tip: BladeTip,
+    slotIndex: number,
+    headPos: THREE.Vector3
+  ): void {
+    const isDesktop = slotIndex === 2;
+    if (!isDesktop) {
+      this.bladeBase.copy(tip.position).addScaledVector(tip.direction, -0.12);
+      this.bladeTipExt.copy(tip.position).addScaledVector(tip.direction, 0.28);
+    } else {
+      // Cast ray from head through mouse blade into strike zone (0.3m - 1.75m)
+      this.rayEnd.copy(b).sub(headPos).normalize().multiplyScalar(1.85).add(headPos);
+    }
+
     for (const flyer of this.flyers) {
       if (!flyer.active) continue;
-      if (!segmentHitsSphere(a, b, flyer.root.position, HIT_RADIUS, this.swing, this.closest)) {
-        continue;
+      let hit = segmentHitsSphere(a, b, flyer.root.position, HIT_RADIUS, this.swing, this.closest);
+      if (!hit && !isDesktop) {
+        hit = segmentHitsSphere(
+          this.bladeBase,
+          this.bladeTipExt,
+          flyer.root.position,
+          HIT_RADIUS,
+          this.swing,
+          this.closest
+        );
+      } else if (!hit && isDesktop) {
+        const ahead = this.spawnPos.copy(flyer.root.position).sub(headPos).dot(this.forward);
+        if (ahead >= 0.3 && ahead <= 1.75) {
+          hit = segmentHitsSphere(
+            headPos,
+            this.rayEnd,
+            flyer.root.position,
+            HIT_RADIUS * 1.15,
+            this.swing,
+            this.closest
+          );
+        }
       }
-      this.cutFlyer(flyer, a, b);
+      if (!hit) continue;
+      this.cutFlyer(flyer, a, b, slotIndex);
     }
   }
 
-  private cutFlyer(flyer: Flyer, a: THREE.Vector3, b: THREE.Vector3): void {
+  private cutFlyer(flyer: Flyer, a: THREE.Vector3, b: THREE.Vector3, slotIndex: number): void {
     this.swing.subVectors(b, a);
     if (this.swing.lengthSq() < 1e-6) this.swing.set(1, 0, 0);
     this.side.crossVectors(this.swing, this.up);
     if (this.side.lengthSq() < 1e-4) this.side.set(1, 0, 0);
     this.side.normalize();
 
-    const color = flyer.body.color.getHex();
-    this.launchShard(flyer.root.position, flyer.velocity, this.side, 1, color);
-    this.launchShard(flyer.root.position, flyer.velocity, this.side, -1, color);
+    const cutAngle = Math.atan2(this.swing.y, this.swing.dot(this.right));
+    const color = flyer.baseColor;
+    this.launchShard(flyer.root.position, flyer.velocity, this.side, 1, color, cutAngle);
+    this.launchShard(flyer.root.position, flyer.velocity, this.side, -1, color, cutAngle);
     this.launchShockWave(flyer.root.position, color);
     this.launchSparkBurst(flyer.root.position, color);
     this.deactivateFlyer(flyer);
-    this.score += 1;
-    if (this.score % 5 === 0) this.audio.playSuccess();
-    else this.audio.playSelect();
+
+    this.combo += 1;
+    if (this.combo > this.maxCombo) this.maxCombo = this.combo;
+    const mult = this.getMultiplier();
+    this.score += (flyer.isGold ? 3 : 1) * mult;
+    this.infoDirty = true;
+
+    this.audio.playSliceHit(this.combo, flyer.isGold);
+    if (slotIndex < 2) {
+      this.input.pulseHaptic(slotIndex, flyer.isGold ? 0.9 : 0.65, flyer.isGold ? 65 : 45);
+    }
   }
 
   private launchShard(
@@ -787,7 +917,8 @@ export class SliceMode implements ITrainingMode {
     incoming: THREE.Vector3,
     side: THREE.Vector3,
     sign: number,
-    color: number
+    color: number,
+    cutAngle: number
   ): void {
     const shard = this.shards.find((item) => !item.active);
     if (!shard) return;
@@ -796,6 +927,7 @@ export class SliceMode implements ITrainingMode {
     shard.root.visible = true;
     shard.root.position.copy(origin).addScaledVector(side, 0.07 * sign);
     shard.root.lookAt(this.aim.copy(origin).add(incoming));
+    shard.halfPivot.rotation.z = cutAngle + (sign < 0 ? Math.PI : 0);
     shard.spin.set(
       (Math.random() - 0.5) * 6,
       sign * (3 + Math.random() * 3),
@@ -873,16 +1005,23 @@ export class SliceMode implements ITrainingMode {
   }
 
   private drawInfo(): void {
+    const mult = this.getMultiplier();
     this.infoPanel.draw((ctx, w, h) => {
-      this.infoPanel.drawRoundedBg(theme.inkPanel, theme.amber, 20);
+      this.infoPanel.drawRoundedBg(theme.inkPanel, mult > 1 ? theme.seafoam : theme.amber, 20);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = theme.amberSoft;
       ctx.font = `700 40px ${canvasFont}`;
-      ctx.fillText(`スコア ${this.score}    ミス ${this.misses}`, w / 2, h * 0.38);
-      ctx.fillStyle = theme.textMuted;
-      ctx.font = `500 26px ${canvasFont}`;
-      ctx.fillText('振ったときだけ切れます', w / 2, h * 0.72);
+      ctx.fillText(`スコア ${this.score}    ミス ${this.misses}`, w / 2, h * 0.36);
+      if (this.combo >= 2) {
+        ctx.fillStyle = theme.seafoam;
+        ctx.font = `700 28px ${canvasFont}`;
+        ctx.fillText(`${this.combo} COMBO!  (倍率 x${mult})`, w / 2, h * 0.74);
+      } else {
+        ctx.fillStyle = theme.textMuted;
+        ctx.font = `500 26px ${canvasFont}`;
+        ctx.fillText('振ったときだけ切れます（金色は3倍）', w / 2, h * 0.74);
+      }
     });
   }
 }
