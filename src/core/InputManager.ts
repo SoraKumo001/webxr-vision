@@ -122,16 +122,16 @@ export class InputManager {
         new THREE.Vector3(0, 0, -5)
       ]);
       const lineMat = new THREE.LineBasicMaterial({
-        color: 0x38bdf8,
+        color: 0x5ec8e8,
         transparent: true,
-        opacity: 0.75
+        opacity: 0.7
       });
       const line = new THREE.Line(lineGeo, lineMat);
       line.visible = false;
       controller.add(line);
 
       const dotGeo = new THREE.SphereGeometry(0.012, 12, 12);
-      const dotMat = new THREE.MeshBasicMaterial({ color: 0x7dd3fc });
+      const dotMat = new THREE.MeshBasicMaterial({ color: 0x9aefe0 });
       const hitDot = new THREE.Mesh(dotGeo, dotMat);
       hitDot.visible = false;
       this.xrManager.scene.add(hitDot);
@@ -320,6 +320,8 @@ export class InputManager {
   }
 
   public update(dt: number): void {
+    this.reticle.update(dt);
+
     const presenting = this.xrManager.isPresenting();
     let anyControllerHovering = false;
 

@@ -3,7 +3,7 @@ import { AudioManager } from './AudioManager';
 import { ActiveInputKind, InputManager } from './InputManager';
 import { Difficulty, StorageManager, TrainingModeId } from './StorageManager';
 import { DisplayMode, XRManager } from './XRManager';
-import { SpaceGridEnv } from '../environments/SpaceGridEnv';
+import { CalmNightEnv } from '../environments/CalmNightEnv';
 import { AquaticRelaxMode } from '../trainings/AquaticRelaxMode';
 import { BinocularMode } from '../trainings/BinocularMode';
 import { FocusStretchMode } from '../trainings/FocusStretchMode';
@@ -19,7 +19,7 @@ export class App {
   private readonly audio = new AudioManager();
   private readonly reticle = new GazeReticle();
   private readonly input: InputManager;
-  private readonly env = new SpaceGridEnv();
+  private readonly env = new CalmNightEnv();
   private readonly dashboard: DashboardHUD;
 
   private readonly modes: Map<TrainingModeId, ITrainingMode>;
@@ -53,6 +53,9 @@ export class App {
   private readonly btnPreview = document.getElementById('btn-desktop-preview') as HTMLButtonElement | null;
   private readonly btnToggleOverlay = document.getElementById('btn-toggle-overlay');
   private readonly btnRecenter = document.getElementById('btn-recenter');
+  private readonly overlayEl = document.getElementById('overlay');
+  /** False until the user picks MR / VR / Desktop Preview. */
+  private launchComplete = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.xrManager = new XRManager(canvas);
@@ -124,12 +127,15 @@ export class App {
       onResetGazePointer: () => {
         this.input.resetGazeOffset();
         this.audio.playSelect();
-      }
+      },
+      onLayoutChange: () => this.syncInteractiveTargets()
     });
 
     this.xrManager.scene.add(this.dashboard.group);
     this.xrManager.getHeadPose(this.headPos, this.headQuat);
     this.dashboard.recenter(this.headPos, this.headQuat);
+    // Keep the spatial menu hidden until a display mode is chosen.
+    this.dashboard.group.visible = false;
 
     this.bindCallbacks();
     this.bindOverlayControls();
@@ -145,20 +151,20 @@ export class App {
       this.env.setVisible(mode !== 'mr' && this.activeMode?.id !== 'aquatic-relax');
       if (this.badgeMode) {
         this.badgeMode.textContent =
-          mode === 'mr' ? '表示: MR (Passthrough)' : mode === 'vr' ? '表示: VR (Space)' : '表示: Preview';
+          mode === 'mr' ? '表示: MR' : mode === 'vr' ? '表示: VR Night' : '表示: Preview';
       }
       this.syncDashboardStatus();
 
       if (mode !== 'preview') {
-        this.launchCard?.classList.add('minimized');
+        this.setLaunchComplete(true);
         setTimeout(() => this.recenterAll(), 250);
       }
     };
 
     this.xrManager.onSessionEnded = () => {
-      this.launchCard?.classList.remove('minimized');
+      this.setLaunchComplete(false);
       if (this.footerText) {
-        this.footerText.textContent = 'XRセッションが終了しました';
+        this.footerText.textContent = 'XRセッションが終了しました。モードを選び直してください';
       }
     };
 
@@ -196,7 +202,8 @@ export class App {
     this.btnPreview?.addEventListener('click', () => {
       this.audio.unlock();
       this.audio.playSelect();
-      this.launchCard?.classList.add('minimized');
+      this.setLaunchComplete(true);
+      this.recenterAll();
       if (this.footerText) {
         this.footerText.textContent =
           '3Dプレビュー中: 左クリック選択 / ドラッグ視点回転 / WASD移動 / Q・E上下 / ホイール前後 / Rリセット';
@@ -204,7 +211,13 @@ export class App {
     });
 
     this.btnToggleOverlay?.addEventListener('click', () => {
-      this.launchCard?.classList.toggle('minimized');
+      // After launch, this only toggles the HTML launch card; spatial menu stays primary.
+      if (!this.launchComplete) return;
+      const showLaunch = this.launchCard?.classList.contains('minimized') ?? false;
+      this.launchCard?.classList.toggle('minimized', !showLaunch);
+      this.launchCard?.classList.toggle('hero-enter', showLaunch);
+      this.launchCard?.toggleAttribute('hidden', !showLaunch);
+      this.overlayEl?.classList.toggle('launch-open', showLaunch);
     });
 
     this.btnRecenter?.addEventListener('click', () => {
@@ -403,7 +416,25 @@ export class App {
     }
   }
 
+  private setLaunchComplete(complete: boolean): void {
+    this.launchComplete = complete;
+    this.launchCard?.classList.toggle('minimized', complete);
+    this.launchCard?.classList.toggle('hero-enter', !complete);
+    this.launchCard?.toggleAttribute('hidden', complete);
+    this.overlayEl?.classList.toggle('launch-open', !complete);
+    this.dashboard.group.visible = complete;
+    if (complete) {
+      this.xrManager.getHeadPose(this.headPos, this.headQuat);
+      this.dashboard.recenter(this.headPos, this.headQuat);
+    }
+    this.syncInteractiveTargets();
+  }
+
   private syncInteractiveTargets(): void {
+    if (!this.launchComplete) {
+      this.input.setTargets([]);
+      return;
+    }
     if (this.activeMode) {
       if (this.activeMode.isUiHidden()) {
         this.input.setTargets(this.activeMode.getInteractiveObjects());
@@ -436,6 +467,7 @@ export class App {
     this.xrManager.updateViewpointControls(dt);
     this.xrManager.getHeadPose(this.headPos, this.headQuat);
     this.env.update(dt);
+    this.dashboard.update(dt);
     this.input.update(dt);
 
     if (this.activeMode) {

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { InteractiveCallbacks } from '../core/InputManager';
+import { canvasFont, theme } from './theme';
 
 export interface SpatialButtonOptions {
   width: number;
@@ -30,6 +31,7 @@ export class SpatialButton {
 
   private hovered = false;
   private active = false;
+  private pressed = false;
   private gazeProgress = 0;
 
   constructor(opts: SpatialButtonOptions) {
@@ -38,10 +40,10 @@ export class SpatialButton {
       height: opts.height,
       label: opts.label,
       subLabel: opts.subLabel ?? '',
-      bgColor: opts.bgColor ?? '#0f172a',
-      borderColor: opts.borderColor ?? '#38bdf8',
-      accentColor: opts.accentColor ?? '#38bdf8',
-      textColor: opts.textColor ?? '#f8fafc',
+      bgColor: opts.bgColor ?? theme.inkPanelSolid,
+      borderColor: opts.borderColor ?? theme.borderSubtle,
+      accentColor: opts.accentColor ?? theme.seafoam,
+      textColor: opts.textColor ?? theme.text,
       fontSize: opts.fontSize ?? 36,
       gazeEnabled: opts.gazeEnabled ?? true,
       gazeDwellSeconds: opts.gazeDwellSeconds ?? 0.85,
@@ -79,11 +81,12 @@ export class SpatialButton {
       gazeDwellSeconds: this.options.gazeDwellSeconds,
       onHover: () => {
         this.hovered = true;
-        this.mesh.scale.setScalar(1.035);
+        this.mesh.scale.setScalar(1.04);
         this.redraw();
       },
       onBlur: () => {
         this.hovered = false;
+        this.pressed = false;
         this.gazeProgress = 0;
         this.mesh.scale.setScalar(1.0);
         this.redraw();
@@ -93,7 +96,16 @@ export class SpatialButton {
         this.redraw();
       },
       onSelect: () => {
+        this.pressed = true;
+        this.mesh.scale.setScalar(0.97);
+        this.redraw();
         this.options.onSelect?.();
+        window.setTimeout(() => {
+          this.pressed = false;
+          if (this.hovered) this.mesh.scale.setScalar(1.04);
+          else this.mesh.scale.setScalar(1.0);
+          this.redraw();
+        }, 120);
       }
     };
     this.mesh.userData = callbacks;
@@ -128,51 +140,51 @@ export class SpatialButton {
     const { ctx, canvas, options } = this;
     const w = this.logicalWidth;
     const h = this.logicalHeight;
-    const radius = Math.min(w, h) * 0.14;
+    const radius = Math.min(w, h) * 0.18;
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     ctx.save();
     ctx.scale(this.resScale, this.resScale);
     this.roundRectPath(ctx, 4, 4, w - 8, h - 8, radius);
-    ctx.fillStyle = this.hovered
-      ? '#1e293b'
-      : this.active
-        ? '#172554'
-        : options.bgColor;
-    ctx.globalAlpha = 0.92;
+
+    let fill = options.bgColor;
+    if (this.pressed) fill = theme.inkActive;
+    else if (this.active) fill = theme.inkActive;
+    else if (this.hovered) fill = theme.inkHover;
+    ctx.fillStyle = fill;
+    ctx.globalAlpha = 0.9;
     ctx.fill();
 
     ctx.globalAlpha = 1.0;
-    ctx.lineWidth = this.hovered || this.active ? 7 : 3.5;
-    ctx.strokeStyle = this.hovered || this.active ? options.accentColor : options.borderColor;
+    ctx.lineWidth = this.hovered || this.active || this.pressed ? 6 : 3;
+    ctx.strokeStyle =
+      this.hovered || this.active || this.pressed ? options.accentColor : options.borderColor;
     ctx.stroke();
 
-    // Gaze dwell fill bar at bottom edge
     if (this.gazeProgress > 0.01) {
       ctx.save();
       this.roundRectPath(ctx, 4, 4, w - 8, h - 8, radius);
       ctx.clip();
       ctx.fillStyle = options.accentColor;
-      ctx.globalAlpha = 0.35;
-      ctx.fillRect(0, h - 14, w * this.gazeProgress, 14);
+      ctx.globalAlpha = 0.32;
+      ctx.fillRect(0, h - 12, w * this.gazeProgress, 12);
       ctx.restore();
     }
 
-    // Text
     ctx.fillStyle = options.textColor;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
     if (options.subLabel) {
-      ctx.font = `bold ${options.fontSize}px "Segoe UI", "Hiragino Sans", sans-serif`;
-      ctx.fillText(options.label, w / 2, h * 0.39, w - 36);
+      ctx.font = `600 ${options.fontSize}px ${canvasFont}`;
+      ctx.fillText(options.label, w / 2, h * 0.38, w - 36);
 
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = `${Math.round(options.fontSize * 0.62)}px "Segoe UI", "Hiragino Sans", sans-serif`;
+      ctx.fillStyle = theme.textMuted;
+      ctx.font = `500 ${Math.round(options.fontSize * 0.62)}px ${canvasFont}`;
       ctx.fillText(options.subLabel, w / 2, h * 0.68, w - 36);
     } else {
-      ctx.font = `bold ${options.fontSize}px "Segoe UI", "Hiragino Sans", sans-serif`;
+      ctx.font = `600 ${options.fontSize}px ${canvasFont}`;
       ctx.fillText(options.label, w / 2, h / 2, w - 36);
     }
 
@@ -244,8 +256,8 @@ export class SpatialTextPanel {
   }
 
   public drawRoundedBg(
-    bgColor = 'rgba(15, 23, 42, 0.88)',
-    borderColor = 'rgba(56, 189, 248, 0.5)',
+    bgColor: string = theme.inkPanel,
+    borderColor: string = theme.borderSubtle,
     radius = 28
   ): void {
     const { ctx, canvas } = this;
@@ -266,7 +278,7 @@ export class SpatialTextPanel {
 
     ctx.fillStyle = bgColor;
     ctx.fill();
-    ctx.lineWidth = 4;
+    ctx.lineWidth = 3.5;
     ctx.strokeStyle = borderColor;
     ctx.stroke();
     ctx.restore();
@@ -277,4 +289,37 @@ export class SpatialTextPanel {
     (this.mesh.material as THREE.Material).dispose();
     this.texture.dispose();
   }
+}
+
+export function wrapCanvasText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  maxLines = 2
+): string[] {
+  const words = text.split('');
+  const lines: string[] = [];
+  let current = '';
+  for (const ch of words) {
+    const next = current + ch;
+    if (ctx.measureText(next).width > maxWidth && current) {
+      lines.push(current);
+      current = ch;
+      if (lines.length >= maxLines) break;
+    } else {
+      current = next;
+    }
+  }
+  if (lines.length < maxLines && current) lines.push(current);
+  if (lines.length === maxLines) {
+    const last = lines[maxLines - 1];
+    if (ctx.measureText(last).width > maxWidth || text.length > lines.join('').length) {
+      let trimmed = last;
+      while (trimmed.length > 1 && ctx.measureText(`${trimmed}…`).width > maxWidth) {
+        trimmed = trimmed.slice(0, -1);
+      }
+      lines[maxLines - 1] = `${trimmed}…`;
+    }
+  }
+  return lines;
 }

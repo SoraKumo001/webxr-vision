@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import { AudioManager } from '../core/AudioManager';
 import { Difficulty } from '../core/StorageManager';
+import { GroupFade } from '../ui/GroupFade';
+import { createMotionTrail, createSoftOrb } from '../ui/SoftOrb';
 import { SpatialButton, SpatialTextPanel } from '../ui/SpatialPanel';
+import { canvasFont, theme, themeHex } from '../ui/theme';
 import { ITrainingMode, TrainingHUDState, TrainingResult } from './ITrainingMode';
 import { ModeUiChrome } from './ModeUiChrome';
 
@@ -28,12 +31,14 @@ export class PeripheralMode implements ITrainingMode {
 
   private readonly arena = new THREE.Group();
   private readonly targetGroup = new THREE.Group();
-  private readonly guideOrb: THREE.Mesh;
-  private readonly trailRing: THREE.Mesh;
+  private readonly softOrb: ReturnType<typeof createSoftOrb>;
+  private readonly trail: ReturnType<typeof createMotionTrail>;
+  private readonly guideRing: THREE.Mesh;
   private readonly infoPanel: SpatialTextPanel;
   private readonly pathButtons: { id: GazePath; btn: SpatialButton }[] = [];
   private readonly interactiveObjects: THREE.Object3D[] = [];
   private readonly uiChrome: ModeUiChrome;
+  private readonly groupFade: GroupFade;
   private readonly audio: AudioManager;
   public onUiHiddenChange?: (hidden: boolean) => void;
 
@@ -48,35 +53,26 @@ export class PeripheralMode implements ITrainingMode {
   constructor(audio: AudioManager) {
     this.audio = audio;
     this.group.add(this.arena);
+    this.groupFade = new GroupFade(this.group);
 
-    this.guideOrb = new THREE.Mesh(
-      new THREE.SphereGeometry(0.12, 24, 24),
-      new THREE.MeshBasicMaterial({ color: 0x34d399 })
-    );
-    this.targetGroup.add(this.guideOrb);
+    this.softOrb = createSoftOrb(themeHex.modePeripheral, 0.12);
+    this.targetGroup.add(this.softOrb.group);
 
-    const wire = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(0.18, 0),
+    this.guideRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.2, 0.235, 48),
       new THREE.MeshBasicMaterial({
-        color: 0x6ee7b7,
-        wireframe: true,
+        color: themeHex.success,
         transparent: true,
-        opacity: 0.7
+        opacity: 0.45,
+        side: THREE.DoubleSide,
+        depthWrite: false
       })
     );
-    this.targetGroup.add(wire);
-
-    this.trailRing = new THREE.Mesh(
-      new THREE.RingGeometry(0.22, 0.26, 48),
-      new THREE.MeshBasicMaterial({
-        color: 0xa7f3d0,
-        transparent: true,
-        opacity: 0.65,
-        side: THREE.DoubleSide
-      })
-    );
-    this.targetGroup.add(this.trailRing);
+    this.targetGroup.add(this.guideRing);
     this.arena.add(this.targetGroup);
+
+    this.trail = createMotionTrail(themeHex.modePeripheral, 10);
+    this.arena.add(this.trail.points);
 
     this.infoPanel = new SpatialTextPanel(1.35, 0.22, 960, 160);
     this.infoPanel.mesh.position.set(0, 0.62, -2.1);
@@ -94,6 +90,8 @@ export class PeripheralMode implements ITrainingMode {
         height: 0.13,
         label: def.label,
         fontSize: 32,
+        borderColor: theme.modePeripheral,
+        accentColor: theme.modePeripheral,
         onSelect: () => {
           this.path = def.id;
           this.autoCycle = false;
@@ -118,6 +116,7 @@ export class PeripheralMode implements ITrainingMode {
       this.onUiHiddenChange?.(hidden);
     };
     this.rebuildInteractives();
+    this.groupFade.setImmediate(false);
   }
 
   private rebuildInteractives(): void {
@@ -172,7 +171,7 @@ export class PeripheralMode implements ITrainingMode {
 
     this.uiChrome.setHidden(false);
     this.refreshButtonStates();
-    this.group.visible = true;
+    this.groupFade.show();
   }
 
   public recenter(headPos: THREE.Vector3, headQuat: THREE.Quaternion): void {
@@ -183,7 +182,7 @@ export class PeripheralMode implements ITrainingMode {
 
   public stop(): TrainingResult {
     this.uiChrome.setHidden(false);
-    this.group.visible = false;
+    this.groupFade.setImmediate(false);
     const duration = Math.max(1, Math.round(this.durationTotal - this.remaining));
     return {
       modeId: this.id,
@@ -193,6 +192,7 @@ export class PeripheralMode implements ITrainingMode {
   }
 
   public update(dt: number): boolean {
+    this.groupFade.update(dt);
     this.remaining -= dt;
     this.elapsedInMode += dt;
 
@@ -230,10 +230,8 @@ export class PeripheralMode implements ITrainingMode {
 
     this.targetGroup.position.set(x, y, depth);
     this.targetGroup.lookAt(this.arena.position);
-    this.trailRing.scale.setScalar(0.95 + Math.sin(this.elapsedInMode * 2.4) * 0.12);
-    (this.guideOrb.material as THREE.MeshBasicMaterial).color.setHex(
-      Math.sin(t) > 0 ? 0x34d399 : 0x2dd4bf
-    );
+    this.guideRing.scale.setScalar(0.95 + Math.sin(this.elapsedInMode * 2.4) * 0.12);
+    this.trail.push(x, y, depth);
 
     if (this.elapsedInMode - this.lastBreathCue > 8) {
       this.lastBreathCue = this.elapsedInMode;
@@ -241,14 +239,14 @@ export class PeripheralMode implements ITrainingMode {
     }
 
     this.infoPanel.draw((ctx, w, h) => {
-      this.infoPanel.drawRoundedBg('rgba(15, 23, 42, 0.88)', '#10b981', 20);
-      ctx.fillStyle = '#f8fafc';
+      this.infoPanel.drawRoundedBg(theme.inkPanel, theme.modePeripheral, 20);
+      ctx.fillStyle = theme.text;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.font = 'bold 42px "Segoe UI", "Hiragino Sans", sans-serif';
+      ctx.font = `700 42px ${canvasFont}`;
       ctx.fillText(`軌道: ${this.pathLabel(this.path)}`, w / 2, h * 0.36);
-      ctx.fillStyle = '#a7f3d0';
-      ctx.font = 'bold 30px "Segoe UI", "Hiragino Sans", sans-serif';
+      ctx.fillStyle = theme.success;
+      ctx.font = `600 30px ${canvasFont}`;
       ctx.fillText('頭は動かさず、目だけでゆっくり追ってください', w / 2, h * 0.7);
     });
 
@@ -266,7 +264,7 @@ export class PeripheralMode implements ITrainingMode {
   public getHUDState(): TrainingHUDState {
     return {
       title: this.name,
-      instruction: '緑色のターゲットをゆっくり視線で追い、眼球まわりをやさしく動かしましょう',
+      instruction: 'やわらかい光のターゲットをゆっくり視線で追い、眼球まわりをやさしく動かしましょう',
       remainingSeconds: Math.max(0, Math.ceil(this.remaining)),
       metricLabel: `軌道: ${this.pathLabel(this.path)}`
     };

@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { AudioManager } from '../core/AudioManager';
 import { Difficulty } from '../core/StorageManager';
+import { GroupFade } from '../ui/GroupFade';
 import { SpatialTextPanel } from '../ui/SpatialPanel';
+import { canvasFont, theme, themeHex } from '../ui/theme';
 import { ITrainingMode, TrainingHUDState, TrainingResult } from './ITrainingMode';
 import { ModeUiChrome } from './ModeUiChrome';
 
@@ -30,6 +32,7 @@ export class BinocularMode implements ITrainingMode {
   private readonly centerGuide: THREE.Mesh;
   private readonly infoPanel: SpatialTextPanel;
   private readonly uiChrome: ModeUiChrome;
+  private readonly groupFade: GroupFade;
   private readonly interactiveObjects: THREE.Object3D[] = [];
   private readonly audio: AudioManager;
   public onUiHiddenChange?: (hidden: boolean) => void;
@@ -45,21 +48,23 @@ export class BinocularMode implements ITrainingMode {
   constructor(audio: AudioManager) {
     this.audio = audio;
     this.group.add(this.arena);
+    this.groupFade = new GroupFade(this.group);
 
     this.centerGuide = new THREE.Mesh(
-      new THREE.RingGeometry(0.08, 0.1, 32),
+      new THREE.RingGeometry(0.07, 0.095, 40),
       new THREE.MeshBasicMaterial({
-        color: 0xe2e8f0,
+        color: themeHex.sand,
         transparent: true,
-        opacity: 0.45,
-        side: THREE.DoubleSide
+        opacity: 0.35,
+        side: THREE.DoubleSide,
+        depthWrite: false
       })
     );
     this.centerGuide.position.set(0, 0.06, -2.165);
     this.arena.add(this.centerGuide);
 
-    this.buildEyeTarget(this.leftTarget, 0x22d3ee, '+');
-    this.buildEyeTarget(this.rightTarget, 0xe879f9, '○');
+    this.buildEyeTarget(this.leftTarget, themeHex.stereoLeft, '+');
+    this.buildEyeTarget(this.rightTarget, themeHex.stereoRight, '○');
     this.leftTarget.position.set(0, 0.06, -2.155);
     this.rightTarget.position.set(0, 0.06, -2.14);
     this.arena.add(this.leftTarget, this.rightTarget);
@@ -77,6 +82,7 @@ export class BinocularMode implements ITrainingMode {
       this.onUiHiddenChange?.(hidden);
     };
     this.rebuildInteractives();
+    this.groupFade.setImmediate(false);
   }
 
   private rebuildInteractives(): void {
@@ -93,19 +99,37 @@ export class BinocularMode implements ITrainingMode {
   }
 
   private buildEyeTarget(group: THREE.Group, color: number, mark: string): void {
+    const glow = new THREE.Mesh(
+      new THREE.CircleGeometry(0.19, 40),
+      new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: 0.14,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+      })
+    );
+    glow.position.z = -0.002;
+    group.add(glow);
+
     const core = new THREE.Mesh(
-      new THREE.CircleGeometry(0.14, 32),
-      new THREE.MeshBasicMaterial({ color: 0x0f172a, transparent: true, opacity: 0.85 })
+      new THREE.CircleGeometry(0.13, 40),
+      new THREE.MeshBasicMaterial({
+        color: themeHex.ink,
+        transparent: true,
+        opacity: 0.78
+      })
     );
     group.add(core);
 
     const ring = new THREE.Mesh(
-      new THREE.RingGeometry(0.14, 0.17, 40),
+      new THREE.RingGeometry(0.13, 0.165, 48),
       new THREE.MeshBasicMaterial({
         color,
         transparent: true,
         opacity: 0.9,
-        side: THREE.DoubleSide
+        side: THREE.DoubleSide,
+        depthWrite: false
       })
     );
     ring.position.z = 0.002;
@@ -117,8 +141,8 @@ export class BinocularMode implements ITrainingMode {
     const ctx = canvas.getContext('2d');
     if (ctx) {
       ctx.clearRect(0, 0, 128, 128);
-      ctx.fillStyle = '#f8fafc';
-      ctx.font = 'bold 72px "Segoe UI", sans-serif';
+      ctx.fillStyle = theme.text;
+      ctx.font = 'bold 72px sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(mark, 64, 70);
@@ -126,7 +150,7 @@ export class BinocularMode implements ITrainingMode {
     const tex = new THREE.CanvasTexture(canvas);
     tex.colorSpace = THREE.SRGBColorSpace;
     const label = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.16, 0.16),
+      new THREE.PlaneGeometry(0.15, 0.15),
       new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide })
     );
     label.position.z = 0.01;
@@ -147,7 +171,7 @@ export class BinocularMode implements ITrainingMode {
     this.arena.rotation.set(0, euler.y, 0);
 
     this.uiChrome.setHidden(false);
-    this.group.visible = true;
+    this.groupFade.show();
   }
 
   public recenter(headPos: THREE.Vector3, headQuat: THREE.Quaternion): void {
@@ -158,7 +182,7 @@ export class BinocularMode implements ITrainingMode {
 
   public stop(): TrainingResult {
     this.uiChrome.setHidden(false);
-    this.group.visible = false;
+    this.groupFade.setImmediate(false);
     const duration = Math.max(1, Math.round(this.durationTotal - this.remaining));
     return {
       modeId: this.id,
@@ -168,10 +192,10 @@ export class BinocularMode implements ITrainingMode {
   }
 
   public update(dt: number): boolean {
+    this.groupFade.update(dt);
     this.remaining -= dt;
     this.elapsedInMode += dt;
 
-    // Smooth converge ↔ diverge cycle (0 → max → 0)
     const phase = (this.elapsedInMode % this.cyclePeriod) / this.cyclePeriod;
     const norm = (1 - Math.cos(phase * Math.PI * 2)) * 0.5;
     this.currentOffset = norm * this.maxOffset;
@@ -192,11 +216,11 @@ export class BinocularMode implements ITrainingMode {
     this.centerGuide.scale.setScalar(1.05 + (1 - norm) * 0.25);
 
     this.infoPanel.draw((ctx, w, h) => {
-      this.infoPanel.drawRoundedBg('rgba(15, 23, 42, 0.88)', '#a855f7', 22);
-      ctx.fillStyle = '#f8fafc';
+      this.infoPanel.drawRoundedBg(theme.inkPanel, theme.modeBinocular, 22);
+      ctx.fillStyle = theme.text;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.font = 'bold 34px "Segoe UI", "Hiragino Sans", sans-serif';
+      ctx.font = `600 34px ${canvasFont}`;
       ctx.fillText(
         converging
           ? '寄り（輻輳）— 左右が近づくのをやさしく見つめる'
@@ -204,8 +228,8 @@ export class BinocularMode implements ITrainingMode {
         w / 2,
         h * 0.36
       );
-      ctx.fillStyle = '#c4b5fd';
-      ctx.font = 'bold 28px "Segoe UI", sans-serif';
+      ctx.fillStyle = theme.modeBinocular;
+      ctx.font = `600 28px ${canvasFont}`;
       ctx.fillText(
         `間隔: ${(this.currentOffset * 200).toFixed(1)} cm  |  周期 ${this.cyclePeriod.toFixed(1)}秒`,
         w / 2,

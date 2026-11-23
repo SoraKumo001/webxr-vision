@@ -2,7 +2,10 @@ import * as THREE from 'three';
 import { AudioManager } from '../core/AudioManager';
 import { Difficulty } from '../core/StorageManager';
 import { InteractiveCallbacks } from '../core/InputManager';
+import { GroupFade } from '../ui/GroupFade';
+import { createSoftOrb } from '../ui/SoftOrb';
 import { SpatialButton, SpatialTextPanel } from '../ui/SpatialPanel';
+import { canvasFont, theme, themeHex } from '../ui/theme';
 import { ITrainingMode, TrainingHUDState, TrainingResult } from './ITrainingMode';
 import { ModeUiChrome } from './ModeUiChrome';
 
@@ -25,9 +28,10 @@ export class FocusStretchMode implements ITrainingMode {
 
   private readonly arena = new THREE.Group();
   private readonly targetGroup = new THREE.Group();
-  private readonly outerWire: THREE.Mesh;
+  private readonly softOrb: ReturnType<typeof createSoftOrb>;
   private readonly breathRing: THREE.Mesh;
   private readonly distancePanel: SpatialTextPanel;
+  private readonly groupFade: GroupFade;
 
   private readonly patternButtons: { id: StretchPattern; btn: SpatialButton }[] = [];
   private readonly interactiveObjects: THREE.Object3D[] = [];
@@ -49,39 +53,18 @@ export class FocusStretchMode implements ITrainingMode {
   constructor(audio: AudioManager) {
     this.audio = audio;
     this.group.add(this.arena);
+    this.groupFade = new GroupFade(this.group);
 
-    const outerGeo = new THREE.IcosahedronGeometry(0.22, 1);
-    const outerMat = new THREE.MeshBasicMaterial({
-      color: 0x38bdf8,
-      wireframe: true,
-      transparent: true,
-      opacity: 0.75
-    });
-    this.outerWire = new THREE.Mesh(outerGeo, outerMat);
-    this.targetGroup.add(this.outerWire);
+    this.softOrb = createSoftOrb(themeHex.modeFocus, 0.16);
+    this.targetGroup.add(this.softOrb.group);
 
-    const coreGeo = new THREE.SphereGeometry(0.14, 24, 24);
-    const coreMat = new THREE.MeshBasicMaterial({
-      color: 0x0f172a,
-      transparent: true,
-      opacity: 0.82,
-      depthWrite: false
-    });
-    this.targetGroup.add(new THREE.Mesh(coreGeo, coreMat));
-
-    const innerGlow = new THREE.Mesh(
-      new THREE.SphereGeometry(0.08, 16, 16),
-      new THREE.MeshBasicMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.88 })
-    );
-    innerGlow.renderOrder = 1;
-    this.targetGroup.add(innerGlow);
-
-    const ringGeo = new THREE.RingGeometry(0.26, 0.29, 48);
+    const ringGeo = new THREE.RingGeometry(0.24, 0.275, 48);
     const ringMat = new THREE.MeshBasicMaterial({
-      color: 0x34d399,
+      color: themeHex.success,
       transparent: true,
-      opacity: 0.8,
-      side: THREE.DoubleSide
+      opacity: 0.72,
+      side: THREE.DoubleSide,
+      depthWrite: false
     });
     this.breathRing = new THREE.Mesh(ringGeo, ringMat);
     this.targetGroup.add(this.breathRing);
@@ -93,10 +76,10 @@ export class FocusStretchMode implements ITrainingMode {
     const targetCallbacks: InteractiveCallbacks = {
       gazeEnabled: false,
       onHover: () => {
-        (this.outerWire.material as THREE.MeshBasicMaterial).color.setHex(0x6ee7b7);
+        (this.softOrb.core.material as THREE.MeshBasicMaterial).color.setHex(themeHex.success);
       },
       onBlur: () => {
-        (this.outerWire.material as THREE.MeshBasicMaterial).color.setHex(0x38bdf8);
+        (this.softOrb.core.material as THREE.MeshBasicMaterial).color.setHex(themeHex.modeFocus);
       }
     };
     this.targetGroup.userData = targetCallbacks;
@@ -113,6 +96,8 @@ export class FocusStretchMode implements ITrainingMode {
         height: 0.14,
         label: def.label,
         fontSize: 34,
+        borderColor: theme.modeFocus,
+        accentColor: theme.modeFocus,
         onSelect: () => {
           this.pattern = def.id;
           this.autoCyclePattern = false;
@@ -137,6 +122,7 @@ export class FocusStretchMode implements ITrainingMode {
       this.onUiHiddenChange?.(hidden);
     };
     this.rebuildInteractives();
+    this.groupFade.setImmediate(false);
   }
 
   private rebuildInteractives(): void {
@@ -179,7 +165,7 @@ export class FocusStretchMode implements ITrainingMode {
 
     this.uiChrome.setHidden(false);
     this.refreshButtonStates();
-    this.group.visible = true;
+    this.groupFade.show();
   }
 
   public recenter(headPos: THREE.Vector3, headQuat: THREE.Quaternion): void {
@@ -190,7 +176,7 @@ export class FocusStretchMode implements ITrainingMode {
 
   public stop(): TrainingResult {
     this.uiChrome.setHidden(false);
-    this.group.visible = false;
+    this.groupFade.setImmediate(false);
     const duration = Math.max(1, Math.round(this.durationTotal - this.remaining));
     return {
       modeId: this.id,
@@ -200,6 +186,7 @@ export class FocusStretchMode implements ITrainingMode {
   }
 
   public update(dt: number): boolean {
+    this.groupFade.update(dt);
     this.remaining -= dt;
     this.elapsedInMode += dt;
 
@@ -231,7 +218,7 @@ export class FocusStretchMode implements ITrainingMode {
     } else {
       const norm = (1 - Math.cos(t * 0.7)) * 0.5;
       z = -(0.6 + norm * 9.4);
-      const distRatio = Math.min(1, (-z) / 2.8);
+      const distRatio = Math.min(1, -z / 2.8);
       const r = (0.38 + 0.28 * Math.sin(t * 0.55)) * distRatio;
       x = Math.cos(t * 1.2) * r;
       y = 0.04 + Math.sin(t * 1.2) * r * 0.8;
@@ -244,8 +231,7 @@ export class FocusStretchMode implements ITrainingMode {
     const scale = Math.max(0.75, 0.65 + this.currentDistMeters * 0.14);
     this.targetGroup.scale.setScalar(scale);
     this.targetGroup.lookAt(this.arena.position);
-    this.outerWire.rotation.y += dt * 0.8;
-    this.outerWire.rotation.x += dt * 0.45;
+    this.softOrb.glow.rotation.y += dt * 0.4;
 
     const movingOut = z < prevZ;
     if (movingOut !== this.lastMovingOut && this.elapsedInMode > 0.5) {
@@ -256,14 +242,14 @@ export class FocusStretchMode implements ITrainingMode {
     this.breathRing.scale.setScalar(breathScale);
 
     this.distancePanel.draw((ctx, w, h) => {
-      this.distancePanel.drawRoundedBg('rgba(15, 23, 42, 0.86)', '#38bdf8', 22);
-      ctx.fillStyle = '#e2e8f0';
+      this.distancePanel.drawRoundedBg(theme.inkPanel, theme.modeFocus, 22);
+      ctx.fillStyle = theme.text;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.font = 'bold 54px "Segoe UI", sans-serif';
+      ctx.font = `700 54px ${canvasFont}`;
       ctx.fillText(`${this.currentDistMeters.toFixed(1)} m`, w / 2, h * 0.42);
-      ctx.fillStyle = movingOut ? '#6ee7b7' : '#93c5fd';
-      ctx.font = 'bold 34px "Segoe UI", "Hiragino Sans", sans-serif';
+      ctx.fillStyle = movingOut ? theme.success : theme.modeFocus;
+      ctx.font = `600 34px ${canvasFont}`;
       ctx.fillText(movingOut ? '遠くへ (息を吐く)' : '手前へ (ピント集中)', w / 2, h * 0.76);
     });
 

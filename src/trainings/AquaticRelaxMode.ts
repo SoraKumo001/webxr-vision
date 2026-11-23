@@ -166,7 +166,7 @@ export class AquaticRelaxMode implements ITrainingMode {
     this.btnSpawn = new SpatialButton({
       width: 0.40,
       height: 0.13,
-      label: '🐠 生き物を呼ぶ',
+      label: '生き物を呼ぶ',
       fontSize: 27,
       borderColor: '#38d9c0',
       accentColor: '#38d9c0',
@@ -182,16 +182,16 @@ export class AquaticRelaxMode implements ITrainingMode {
     this.btnTheme = new SpatialButton({
       width: 0.40,
       height: 0.13,
-      label: '🌊 テーマ: サンゴ礁',
+      label: 'テーマ: サンゴ礁',
       fontSize: 24,
-      borderColor: '#38bdf8',
-      accentColor: '#38bdf8',
+      borderColor: '#2dd4bf',
+      accentColor: '#2dd4bf',
       gazeDwellSeconds: 0.75,
       onSelect: () => {
         this.theme = this.theme === 'reef' ? 'deep-jelly' : 'reef';
         this.audio.playSelect();
         this.btnTheme.setLabel(
-          this.theme === 'reef' ? '🌊 テーマ: サンゴ礁' : '🪼 テーマ: 深海クラゲ'
+          this.theme === 'reef' ? 'テーマ: サンゴ礁' : 'テーマ: 深海クラゲ'
         );
         (this.domeBackdrop.material as THREE.ShaderMaterial).uniforms.uDeepMode.value =
           this.theme === 'deep-jelly' ? 1.0 : 0.0;
@@ -204,7 +204,7 @@ export class AquaticRelaxMode implements ITrainingMode {
     this.btnEnvToggle = new SpatialButton({
       width: 0.40,
       height: 0.13,
-      label: '🏝 水底・水面: ON',
+      label: '水底・水面: ON',
       fontSize: 24,
       borderColor: '#2dd4bf',
       accentColor: '#2dd4bf',
@@ -287,7 +287,7 @@ export class AquaticRelaxMode implements ITrainingMode {
     const isMR = this.getDisplayMode() === 'mr';
     this.envGroup.visible = this.showEnvironment;
     this.domeBackdrop.visible = !isMR;
-    this.btnEnvToggle.setLabel(`🏝 水底・水面: ${this.showEnvironment ? 'ON' : 'OFF'}`);
+    this.btnEnvToggle.setLabel(`水底・水面: ${this.showEnvironment ? 'ON' : 'OFF'}`);
     this.btnEnvToggle.setActive(this.showEnvironment);
 
     const fogAmt = isMR ? 0.0 : 0.85;

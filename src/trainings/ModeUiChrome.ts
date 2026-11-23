@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { AudioManager } from '../core/AudioManager';
 import { SpatialButton } from '../ui/SpatialPanel';
+import { theme } from '../ui/theme';
 
 export interface ModeUiChromeOptions {
   showButtonPosition?: THREE.Vector3;
@@ -29,9 +30,9 @@ export class ModeUiChrome {
       height: 0.1,
       label: 'UI表示',
       fontSize: 26,
-      bgColor: '#06121c',
-      borderColor: '#38bdf8',
-      accentColor: '#38bdf8',
+      bgColor: theme.ink,
+      borderColor: theme.seafoam,
+      accentColor: theme.seafoam,
       gazeDwellSeconds: 0.75,
       onSelect: () => {
         this.setHidden(false);

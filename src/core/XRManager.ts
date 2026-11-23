@@ -29,7 +29,7 @@ export class XRManager {
   private lastPointerX = 0;
   private lastPointerY = 0;
   private readonly pressedKeys = new Set<string>();
-  private readonly vrBgColor = new THREE.Color(0x050814);
+  private readonly vrBgColor = new THREE.Color(0x06121c);
   private readonly tempVec = new THREE.Vector3();
   private readonly tempQuat = new THREE.Quaternion();
   private readonly tempEuler = new THREE.Euler();
@@ -67,10 +67,10 @@ export class XRManager {
     this.camera.layers.enable(2);
     this.userRig.add(this.camera);
 
-    const ambient = new THREE.AmbientLight(0xffffff, 0.85);
+    const ambient = new THREE.AmbientLight(0xd8f0f2, 0.8);
     this.scene.add(ambient);
 
-    const dirLight = new THREE.DirectionalLight(0xe0f2fe, 1.1);
+    const dirLight = new THREE.DirectionalLight(0xb8e8e0, 1.05);
     dirLight.position.set(2, 5, 3);
     this.scene.add(dirLight);
 

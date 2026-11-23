@@ -1,20 +1,24 @@
 import * as THREE from 'three';
+import { themeHex } from './theme';
+
+const RING_SEGMENTS = 64;
 
 export class GazeReticle {
   public readonly group: THREE.Group;
   private readonly dotMesh: THREE.Mesh;
   private readonly progressRing: THREE.Mesh;
   private progress = 0;
+  private pulseT = 0;
 
   constructor() {
     this.group = new THREE.Group();
     this.group.renderOrder = 999;
 
-    const dotGeo = new THREE.RingGeometry(0.004, 0.008, 24);
+    const dotGeo = new THREE.RingGeometry(0.0035, 0.0075, 28);
     const dotMat = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
-      opacity: 0.75,
+      opacity: 0.7,
       depthTest: false,
       depthWrite: false
     });
@@ -22,11 +26,18 @@ export class GazeReticle {
     this.dotMesh.renderOrder = 999;
     this.group.add(this.dotMesh);
 
-    const ringGeo = new THREE.RingGeometry(0.014, 0.022, 48, 1, Math.PI / 2, 0.001);
+    const ringGeo = new THREE.RingGeometry(
+      0.013,
+      0.021,
+      RING_SEGMENTS,
+      1,
+      Math.PI / 2,
+      Math.PI * 2
+    );
     const ringMat = new THREE.MeshBasicMaterial({
-      color: 0x38bdf8,
+      color: themeHex.reticle,
       transparent: true,
-      opacity: 0.95,
+      opacity: 0.92,
       side: THREE.DoubleSide,
       depthTest: false,
       depthWrite: false
@@ -34,32 +45,40 @@ export class GazeReticle {
     this.progressRing = new THREE.Mesh(ringGeo, ringMat);
     this.progressRing.renderOrder = 999;
     this.progressRing.visible = false;
+    this.progressRing.geometry.setDrawRange(0, 0);
     this.group.add(this.progressRing);
   }
 
   public setProgress(progress: number): void {
     const clamped = Math.max(0, Math.min(1, progress));
-    if (Math.abs(clamped - this.progress) < 0.005 && clamped !== 0) {
+    if (Math.abs(clamped - this.progress) < 0.008 && clamped !== 0) {
       return;
     }
     this.progress = clamped;
 
     if (clamped <= 0.01) {
       this.progressRing.visible = false;
+      this.progressRing.geometry.setDrawRange(0, 0);
       return;
     }
 
     this.progressRing.visible = true;
-    this.progressRing.geometry.dispose();
-    const thetaLength = clamped * Math.PI * 2;
-    this.progressRing.geometry = new THREE.RingGeometry(
-      0.014,
-      0.022,
-      48,
-      1,
-      Math.PI / 2,
-      -thetaLength
-    );
+    const segs = Math.max(1, Math.round(clamped * RING_SEGMENTS));
+    // RingGeometry: 2 triangles (6 indices) per segment
+    this.progressRing.geometry.setDrawRange(0, segs * 6);
+    (this.progressRing.material as THREE.MeshBasicMaterial).opacity = 0.55 + clamped * 0.4;
+  }
+
+  public update(dt: number): void {
+    this.pulseT += dt;
+    if (this.progress <= 0.01) {
+      const wave = Math.sin(this.pulseT * 2.2);
+      this.dotMesh.scale.setScalar(1 + wave * 0.06);
+      (this.dotMesh.material as THREE.MeshBasicMaterial).opacity = 0.55 + wave * 0.12;
+    } else {
+      this.dotMesh.scale.setScalar(1);
+      (this.dotMesh.material as THREE.MeshBasicMaterial).opacity = 0.85;
+    }
   }
 
   public updateTransform(
@@ -70,7 +89,6 @@ export class GazeReticle {
   ): void {
     this.group.position.copy(headPos).addScaledVector(forwardDir, distance);
     this.group.quaternion.copy(headQuat);
-    // Keep apparent angular size consistent across depths
     const scale = Math.max(0.6, distance * 0.5);
     this.group.scale.setScalar(scale);
   }

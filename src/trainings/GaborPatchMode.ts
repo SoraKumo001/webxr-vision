@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import { AudioManager } from '../core/AudioManager';
 import { Difficulty } from '../core/StorageManager';
+import { GroupFade } from '../ui/GroupFade';
+import { createMotionTrail, createSoftOrb } from '../ui/SoftOrb';
 import { SpatialButton, SpatialTextPanel } from '../ui/SpatialPanel';
+import { canvasFont, theme, themeHex } from '../ui/theme';
 import { ITrainingMode, TrainingHUDState, TrainingResult } from './ITrainingMode';
 import { ModeUiChrome } from './ModeUiChrome';
 
@@ -19,6 +22,7 @@ function radiusForDifficulty(difficulty: Difficulty): number {
   return difficulty === 'easy' ? 0.48 : difficulty === 'normal' ? 0.62 : 0.72;
 }
 
+/** Smooth-pursuit orbit training (mode id kept as gabor-patch for storage compatibility). */
 export class GaborPatchMode implements ITrainingMode {
   public readonly id = 'gabor-patch' as const;
   public readonly name = '3. 回旋・スムーズパーシュート';
@@ -29,11 +33,13 @@ export class GaborPatchMode implements ITrainingMode {
   private readonly arena = new THREE.Group();
   private readonly orbitPath: THREE.Line;
   private readonly targetGroup = new THREE.Group();
-  private readonly guideOrb: THREE.Mesh;
+  private readonly softOrb: ReturnType<typeof createSoftOrb>;
+  private readonly trail: ReturnType<typeof createMotionTrail>;
   private readonly infoPanel: SpatialTextPanel;
   private readonly dirButtons: { id: OrbitDirection; btn: SpatialButton }[] = [];
   private readonly interactiveObjects: THREE.Object3D[] = [];
   private readonly uiChrome: ModeUiChrome;
+  private readonly groupFade: GroupFade;
   private readonly audio: AudioManager;
   public onUiHiddenChange?: (hidden: boolean) => void;
 
@@ -50,6 +56,7 @@ export class GaborPatchMode implements ITrainingMode {
   constructor(audio: AudioManager) {
     this.audio = audio;
     this.group.add(this.arena);
+    this.groupFade = new GroupFade(this.group);
 
     const pathPts: THREE.Vector3[] = [];
     for (let i = 0; i <= 64; i++) {
@@ -58,28 +65,21 @@ export class GaborPatchMode implements ITrainingMode {
     }
     this.orbitPath = new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(pathPts),
-      new THREE.LineBasicMaterial({ color: 0xf59e0b, transparent: true, opacity: 0.35 })
+      new THREE.LineBasicMaterial({
+        color: themeHex.modePursuit,
+        transparent: true,
+        opacity: 0.28
+      })
     );
     this.orbitPath.position.set(0, -0.02, -2.3);
     this.arena.add(this.orbitPath);
 
-    this.guideOrb = new THREE.Mesh(
-      new THREE.SphereGeometry(0.11, 24, 24),
-      new THREE.MeshBasicMaterial({ color: 0xfbbf24 })
-    );
-    this.targetGroup.add(this.guideOrb);
-
-    const halo = new THREE.Mesh(
-      new THREE.RingGeometry(0.16, 0.2, 40),
-      new THREE.MeshBasicMaterial({
-        color: 0xfde68a,
-        transparent: true,
-        opacity: 0.75,
-        side: THREE.DoubleSide
-      })
-    );
-    this.targetGroup.add(halo);
+    this.softOrb = createSoftOrb(themeHex.modePursuit, 0.11);
+    this.targetGroup.add(this.softOrb.group);
     this.arena.add(this.targetGroup);
+
+    this.trail = createMotionTrail(themeHex.amberSoft, 12);
+    this.arena.add(this.trail.points);
 
     this.infoPanel = new SpatialTextPanel(1.35, 0.22, 960, 160);
     this.infoPanel.mesh.position.set(0, 0.62, -2.1);
@@ -95,6 +95,8 @@ export class GaborPatchMode implements ITrainingMode {
         height: 0.13,
         label: def.label,
         fontSize: 32,
+        borderColor: theme.modePursuit,
+        accentColor: theme.modePursuit,
         onSelect: () => {
           this.direction = def.id;
           this.autoFlip = false;
@@ -119,6 +121,7 @@ export class GaborPatchMode implements ITrainingMode {
       this.onUiHiddenChange?.(hidden);
     };
     this.rebuildInteractives();
+    this.groupFade.setImmediate(false);
   }
 
   private rebuildInteractives(): void {
@@ -164,7 +167,7 @@ export class GaborPatchMode implements ITrainingMode {
 
     this.uiChrome.setHidden(false);
     this.refreshButtonStates();
-    this.group.visible = true;
+    this.groupFade.show();
   }
 
   public recenter(headPos: THREE.Vector3, headQuat: THREE.Quaternion): void {
@@ -175,7 +178,7 @@ export class GaborPatchMode implements ITrainingMode {
 
   public stop(): TrainingResult {
     this.uiChrome.setHidden(false);
-    this.group.visible = false;
+    this.groupFade.setImmediate(false);
     const duration = Math.max(1, Math.round(this.durationTotal - this.remaining));
     return {
       modeId: this.id,
@@ -185,6 +188,7 @@ export class GaborPatchMode implements ITrainingMode {
   }
 
   public update(dt: number): boolean {
+    this.groupFade.update(dt);
     this.remaining -= dt;
     this.elapsedInMode += dt;
 
@@ -203,20 +207,21 @@ export class GaborPatchMode implements ITrainingMode {
     const y = -0.02 + Math.sin(this.angle) * this.orbitRadius * 0.72;
     this.targetGroup.position.set(x, y, -2.3);
     this.targetGroup.lookAt(this.arena.position);
+    this.trail.push(x, y, -2.3);
 
     const pulse = 0.95 + Math.sin(this.elapsedInMode * 2.2) * 0.1;
-    this.guideOrb.scale.setScalar(pulse);
+    this.softOrb.group.scale.setScalar(pulse);
 
     this.infoPanel.draw((ctx, w, h) => {
-      this.infoPanel.drawRoundedBg('rgba(15, 23, 42, 0.88)', '#f59e0b', 20);
-      ctx.fillStyle = '#f8fafc';
+      this.infoPanel.drawRoundedBg(theme.inkPanel, theme.modePursuit, 20);
+      ctx.fillStyle = theme.text;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       const dirLabel = this.direction === 'cw' ? '時計回り' : '反時計回り';
-      ctx.font = 'bold 42px "Segoe UI", "Hiragino Sans", sans-serif';
+      ctx.font = `700 42px ${canvasFont}`;
       ctx.fillText(`${dirLabel}  |  周期 ${this.period.toFixed(1)}秒`, w / 2, h * 0.36);
-      ctx.fillStyle = '#fde68a';
-      ctx.font = 'bold 30px "Segoe UI", "Hiragino Sans", sans-serif';
+      ctx.fillStyle = theme.amberSoft;
+      ctx.font = `600 30px ${canvasFont}`;
       ctx.fillText('頭を固定して、円をゆっくり追ってください', w / 2, h * 0.7);
     });
 
@@ -235,7 +240,7 @@ export class GaborPatchMode implements ITrainingMode {
     const dirLabel = this.direction === 'cw' ? '時計回り' : '反時計回り';
     return {
       title: this.name,
-      instruction: 'オレンジのターゲットが描く円を、視線だけで滑らかに追い続けましょう',
+      instruction: '砂金色の光が描く円を、視線だけで滑らかに追い続けましょう',
       remainingSeconds: Math.max(0, Math.ceil(this.remaining)),
       metricLabel: `${dirLabel} | 半径 ${(this.orbitRadius * 100).toFixed(0)}cm`
     };

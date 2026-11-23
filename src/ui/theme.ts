@@ -1,0 +1,58 @@
+/** Shared wellness visual tokens for DOM overlay + spatial canvas UI. */
+export const theme = {
+  ink: '#06121c',
+  inkDeep: '#040d14',
+  inkPanel: 'rgba(6, 18, 28, 0.88)',
+  inkPanelSolid: '#0a1a24',
+  inkHover: '#0f2a36',
+  inkActive: '#0c3d3a',
+  seafoam: '#38d9c0',
+  seafoamSoft: '#2dd4bf',
+  teal: '#14b8a6',
+  tealDeep: '#0f766e',
+  sand: '#e8d5b5',
+  amber: '#e9b872',
+  amberSoft: '#f5d79a',
+  text: '#e8f1f4',
+  textMuted: '#8aa4ad',
+  success: '#6ee7b7',
+  warn: '#f0c674',
+  danger: '#f87171',
+  dangerSoft: '#fb7185',
+  borderSubtle: 'rgba(56, 217, 192, 0.28)',
+  modeFocus: '#5ec8e8',
+  modePeripheral: '#3dcfb0',
+  modePursuit: '#e9b872',
+  modeBinocular: '#7eb8c9',
+  modeAquatic: '#38d9c0',
+  modeAquaticBg: '#042f2e',
+  autoAccent: '#c4a882',
+  stereoLeft: '#22d3ee',
+  stereoRight: '#f472b6',
+  fontFamily: '"Zen Kaku Gothic New", "Hiragino Sans", "Noto Sans JP", sans-serif',
+  fontDisplay: '"Zen Maru Gothic", "Zen Kaku Gothic New", "Hiragino Sans", sans-serif'
+} as const;
+
+export const themeHex = {
+  ink: 0x06121c,
+  inkDeep: 0x040d14,
+  seafoam: 0x38d9c0,
+  seafoamSoft: 0x2dd4bf,
+  teal: 0x14b8a6,
+  sand: 0xe8d5b5,
+  amber: 0xe9b872,
+  amberSoft: 0xf5d79a,
+  success: 0x6ee7b7,
+  modeFocus: 0x5ec8e8,
+  modePeripheral: 0x3dcfb0,
+  modePursuit: 0xe9b872,
+  modeBinocular: 0x7eb8c9,
+  stereoLeft: 0x22d3ee,
+  stereoRight: 0xf472b6,
+  laser: 0x5ec8e8,
+  laserHit: 0x9aefe0,
+  reticle: 0x38d9c0,
+  vrClear: 0x06121c
+} as const;
+
+export const canvasFont = theme.fontFamily;
