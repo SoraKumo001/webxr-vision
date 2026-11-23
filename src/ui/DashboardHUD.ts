@@ -80,20 +80,36 @@ export class DashboardHUD {
     this.trainingFade = new GroupFade(this.trainingHudGroup);
     this.trainingFade.setImmediate(false);
 
+    // Menu layout (world meters). Centers leave ≥0.06 gap between button edges,
+    // including hover scale (1.04), so transparent panels never stack.
+    const MENU_Z = -1.85;
+    const COL_L = -0.49;
+    const COL_R = 0.49;
+    const MODE_H = 0.26;
+    const ROW2_H = 0.2;
+    const Y_HEADER = 0.62;
+    const Y_ROW0 = 0.22; // modes 1–2
+    const Y_ROW1 = -0.1; // modes 3–4
+    const Y_ROW2 = -0.4; // auto + aquatic
+    const Y_SETTINGS = -0.62;
+    const Y_SETTINGS_ROW1 = -0.78;
+    const Y_SETTINGS_ROW2 = -0.94;
+
     this.headerPanel = new SpatialTextPanel(1.9, 0.4, 1280, 272);
-    this.headerPanel.mesh.position.set(0, 0.58, -1.85);
+    this.headerPanel.mesh.position.set(0, Y_HEADER, MENU_Z);
     this.menuGroup.add(this.headerPanel.mesh);
 
     MODE_META.forEach((meta, idx) => {
       const isAquatic = idx === 4;
       const col = idx % 2;
       const row = Math.floor(idx / 2);
-      const x = isAquatic ? 0.49 : col === 0 ? -0.49 : 0.49;
-      const y = isAquatic ? -0.2 : row === 0 ? 0.24 : -0.02;
+      const x = isAquatic ? COL_R : col === 0 ? COL_L : COL_R;
+      const y = isAquatic ? Y_ROW2 : row === 0 ? Y_ROW0 : Y_ROW1;
+      const height = isAquatic ? ROW2_H : MODE_H;
 
       const btn = new SpatialButton({
         width: 0.92,
-        height: isAquatic ? 0.2 : 0.26,
+        height,
         label: meta.title,
         subLabel: '0回  |  累計 0分0秒',
         fontSize: isAquatic ? 30 : 34,
@@ -102,7 +118,7 @@ export class DashboardHUD {
         accentColor: meta.color,
         onSelect: () => this.callbacks.onSelectMode(meta.id)
       });
-      btn.mesh.position.set(x, y, -1.85);
+      btn.mesh.position.set(x, y, MENU_Z);
       this.menuGroup.add(btn.mesh);
       this.modeButtons.push({ id: meta.id, title: meta.title, btn });
       this.menuInteractives.push(btn.mesh);
@@ -110,7 +126,7 @@ export class DashboardHUD {
 
     const btnAutoMode = new SpatialButton({
       width: 0.92,
-      height: 0.2,
+      height: ROW2_H,
       label: 'オートモード (1〜4連続)',
       subLabel: '遠近・眼球・回旋・輻輳を順番に',
       fontSize: 28,
@@ -119,7 +135,7 @@ export class DashboardHUD {
       accentColor: theme.autoAccent,
       onSelect: () => this.callbacks.onStartAutoMode()
     });
-    btnAutoMode.mesh.position.set(-0.49, -0.2, -1.85);
+    btnAutoMode.mesh.position.set(COL_L, Y_ROW2, MENU_Z);
     this.menuGroup.add(btnAutoMode.mesh);
     this.menuInteractives.push(btnAutoMode.mesh);
 
@@ -132,7 +148,7 @@ export class DashboardHUD {
       accentColor: theme.seafoam,
       onSelect: () => this.toggleSettings()
     });
-    this.btnSettings.mesh.position.set(0, -0.42, -1.85);
+    this.btnSettings.mesh.position.set(0, Y_SETTINGS, MENU_Z);
     this.menuGroup.add(this.btnSettings.mesh);
     this.menuInteractives.push(this.btnSettings.mesh);
 
@@ -155,7 +171,7 @@ export class DashboardHUD {
           this.refreshControls();
         }
       });
-      btn.mesh.position.set(d.x, -0.58, -1.85);
+      btn.mesh.position.set(d.x, Y_SETTINGS_ROW1, MENU_Z);
       this.settingsGroup.add(btn.mesh);
       this.diffButtons.push({ diff: d.diff, btn });
       this.settingsInteractives.push(btn.mesh);
@@ -170,7 +186,7 @@ export class DashboardHUD {
       accentColor: theme.seafoamSoft,
       onSelect: () => this.callbacks.onToggleGaze()
     });
-    this.btnGaze.mesh.position.set(0.48, -0.58, -1.85);
+    this.btnGaze.mesh.position.set(0.48, Y_SETTINGS_ROW1, MENU_Z);
     this.settingsGroup.add(this.btnGaze.mesh);
     this.settingsInteractives.push(this.btnGaze.mesh);
 
@@ -183,7 +199,7 @@ export class DashboardHUD {
       accentColor: theme.seafoam,
       onSelect: () => this.callbacks.onToggleMute()
     });
-    this.btnMute.mesh.position.set(0.8, -0.58, -1.85);
+    this.btnMute.mesh.position.set(0.8, Y_SETTINGS_ROW1, MENU_Z);
     this.settingsGroup.add(this.btnMute.mesh);
     this.settingsInteractives.push(this.btnMute.mesh);
 
@@ -196,7 +212,7 @@ export class DashboardHUD {
       accentColor: theme.seafoam,
       onSelect: () => this.callbacks.onToggleXRDisplay()
     });
-    this.btnDisplayMode.mesh.position.set(-0.41, -0.74, -1.85);
+    this.btnDisplayMode.mesh.position.set(-0.41, Y_SETTINGS_ROW2, MENU_Z);
     this.settingsGroup.add(this.btnDisplayMode.mesh);
     this.settingsInteractives.push(this.btnDisplayMode.mesh);
 
@@ -209,7 +225,7 @@ export class DashboardHUD {
       accentColor: theme.seafoam,
       onSelect: () => this.callbacks.onRecenter()
     });
-    btnRecenter.mesh.position.set(0.2, -0.74, -1.85);
+    btnRecenter.mesh.position.set(0.2, Y_SETTINGS_ROW2, MENU_Z);
     this.settingsGroup.add(btnRecenter.mesh);
     this.settingsInteractives.push(btnRecenter.mesh);
 
@@ -233,7 +249,7 @@ export class DashboardHUD {
           else this.callbacks.onAdjustGazePointer(p.yaw, p.pitch);
         }
       });
-      btn.mesh.position.set(p.x, -0.74, -1.85);
+      btn.mesh.position.set(p.x, Y_SETTINGS_ROW2, MENU_Z);
       this.settingsGroup.add(btn.mesh);
       this.settingsInteractives.push(btn.mesh);
     }
