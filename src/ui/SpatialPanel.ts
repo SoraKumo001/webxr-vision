@@ -177,12 +177,17 @@ export class SpatialButton {
     ctx.textBaseline = 'middle';
 
     if (options.subLabel) {
-      ctx.font = `600 ${options.fontSize}px ${canvasFont}`;
-      ctx.fillText(options.label, w / 2, h * 0.38, w - 36);
+      const titleSize = options.fontSize;
+      const subSize = Math.round(options.fontSize * 0.62);
+      const lineGap = Math.max(14, Math.round(h * 0.1));
+      const block = titleSize + lineGap + subSize;
+      const top = Math.max(8, (h - block) / 2);
+      ctx.font = `600 ${titleSize}px ${canvasFont}`;
+      ctx.fillText(options.label, w / 2, top + titleSize / 2, w - 36);
 
       ctx.fillStyle = theme.textMuted;
-      ctx.font = `500 ${Math.round(options.fontSize * 0.62)}px ${canvasFont}`;
-      ctx.fillText(options.subLabel, w / 2, h * 0.68, w - 36);
+      ctx.font = `500 ${subSize}px ${canvasFont}`;
+      ctx.fillText(options.subLabel, w / 2, top + titleSize + lineGap + subSize / 2, w - 36);
     } else {
       ctx.font = `600 ${options.fontSize}px ${canvasFont}`;
       ctx.fillText(options.label, w / 2, h / 2, w - 36);

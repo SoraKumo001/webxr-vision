@@ -10,6 +10,7 @@ import { FocusStretchMode } from '../trainings/FocusStretchMode';
 import { GaborPatchMode } from '../trainings/GaborPatchMode';
 import { ITrainingMode } from '../trainings/ITrainingMode';
 import { PeripheralMode } from '../trainings/PeripheralMode';
+import { SliceMode } from '../trainings/SliceMode';
 import { DashboardHUD } from '../ui/DashboardHUD';
 import { GazeReticle } from '../ui/GazeReticle';
 
@@ -69,13 +70,15 @@ export class App {
     const gaborMode = new GaborPatchMode(this.audio);
     const binocularMode = new BinocularMode(this.audio);
     const aquaticMode = new AquaticRelaxMode(this.audio, () => this.xrManager.getDisplayMode());
+    const sliceMode = new SliceMode(this.audio, this.input);
 
     this.modes = new Map<TrainingModeId, ITrainingMode>([
       [focusMode.id, focusMode],
       [peripheralMode.id, peripheralMode],
       [gaborMode.id, gaborMode],
       [binocularMode.id, binocularMode],
-      [aquaticMode.id, aquaticMode]
+      [aquaticMode.id, aquaticMode],
+      [sliceMode.id, sliceMode]
     ]);
 
     for (const mode of this.modes.values()) {
@@ -331,6 +334,8 @@ export class App {
 
     this.activeMode = mode;
     this.env.setVisible(this.xrManager.getDisplayMode() !== 'mr' && modeId !== 'aquatic-relax');
+    this.input.setMenuRaysSuppressed(modeId === 'slice');
+    this.xrManager.setDesktopDragLookEnabled(modeId !== 'slice');
     this.activeMode.start(this.difficulty, this.headPos, this.headQuat);
     if (keepUiHidden) {
       this.activeMode.setUiHidden(true);
@@ -374,6 +379,8 @@ export class App {
     }
 
     this.isAutoMode = false;
+    this.input.setMenuRaysSuppressed(false);
+    this.xrManager.setDesktopDragLookEnabled(true);
     this.env.setVisible(this.xrManager.getDisplayMode() !== 'mr');
     const summaryResult = {
       modeId: result.modeId,
@@ -394,6 +401,8 @@ export class App {
     const result = this.activeMode.stop();
     this.storage.recordSession(result.modeId, result.durationSec, this.difficulty);
     this.activeMode = null;
+    this.input.setMenuRaysSuppressed(false);
+    this.xrManager.setDesktopDragLookEnabled(true);
     this.env.setVisible(this.xrManager.getDisplayMode() !== 'mr');
 
     let finalResult = result;

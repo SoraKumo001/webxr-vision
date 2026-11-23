@@ -31,7 +31,8 @@ const MODE_META: { id: TrainingModeId; title: string; color: string; bgColor?: s
     title: '5. 水中リラクゼーション',
     color: theme.modeAquatic,
     bgColor: theme.modeAquaticBg
-  }
+  },
+  { id: 'slice', title: '6. スライス', color: theme.amber, bgColor: theme.inkPanelSolid }
 ];
 
 export class DashboardHUD {
@@ -91,28 +92,32 @@ export class DashboardHUD {
     const Y_ROW0 = 0.22; // modes 1–2
     const Y_ROW1 = -0.1; // modes 3–4
     const Y_ROW2 = -0.4; // auto + aquatic
-    const Y_SETTINGS = -0.62;
-    const Y_SETTINGS_ROW1 = -0.78;
-    const Y_SETTINGS_ROW2 = -0.94;
+    const Y_SLICE = -0.67;
+    const SLICE_H = 0.22;
+    const Y_SETTINGS = -0.91;
+    const Y_SETTINGS_ROW1 = -1.09;
+    const Y_SETTINGS_ROW2 = -1.26;
 
     this.headerPanel = new SpatialTextPanel(1.9, 0.4, 1280, 272);
     this.headerPanel.mesh.position.set(0, Y_HEADER, MENU_Z);
     this.menuGroup.add(this.headerPanel.mesh);
 
     MODE_META.forEach((meta, idx) => {
-      const isAquatic = idx === 4;
+      const isSlice = meta.id === 'slice';
+      const isAquatic = meta.id === 'aquatic-relax';
       const col = idx % 2;
       const row = Math.floor(idx / 2);
-      const x = isAquatic ? COL_R : col === 0 ? COL_L : COL_R;
-      const y = isAquatic ? Y_ROW2 : row === 0 ? Y_ROW0 : Y_ROW1;
-      const height = isAquatic ? ROW2_H : MODE_H;
+      const x = isSlice ? 0 : isAquatic ? COL_R : col === 0 ? COL_L : COL_R;
+      const y = isSlice ? Y_SLICE : isAquatic ? Y_ROW2 : row === 0 ? Y_ROW0 : Y_ROW1;
+      const height = isSlice ? SLICE_H : isAquatic ? ROW2_H : MODE_H;
+      const width = isSlice ? 1.88 : 0.92;
 
       const btn = new SpatialButton({
-        width: 0.92,
+        width,
         height,
         label: meta.title,
-        subLabel: '0回  |  累計 0分0秒',
-        fontSize: isAquatic ? 30 : 34,
+        subLabel: isSlice ? '飛んでくる光を振って切る' : '0回  |  累計 0分0秒',
+        fontSize: isSlice ? 32 : isAquatic ? 30 : 34,
         bgColor: meta.bgColor ?? theme.inkPanelSolid,
         borderColor: meta.color,
         accentColor: meta.color,
@@ -152,10 +157,32 @@ export class DashboardHUD {
     this.menuGroup.add(this.btnSettings.mesh);
     this.menuInteractives.push(this.btnSettings.mesh);
 
+    // Pack left-to-right from a shared left edge so button edges never meet.
+    const packX = (widths: number[], gap: number, left: number): number[] => {
+      const centers: number[] = [];
+      let edge = left;
+      for (const w of widths) {
+        centers.push(edge + w / 2);
+        edge += w + gap;
+      }
+      return centers;
+    };
+    const settingsLeft = -0.94;
+    const [easyX, normalX, hardX, gazeX, muteX] = packX(
+      [0.3, 0.3, 0.3, 0.4, 0.3],
+      0.045,
+      settingsLeft
+    );
+    const [displayX, recenterX, yawL, pitchD, pitchU, resetX] = packX(
+      [0.68, 0.34, 0.12, 0.12, 0.12, 0.28],
+      0.04,
+      settingsLeft
+    );
+
     const diffs: { diff: Difficulty; label: string; x: number }[] = [
-      { diff: 'easy', label: 'Easy', x: -0.62 },
-      { diff: 'normal', label: 'Normal', x: -0.28 },
-      { diff: 'hard', label: 'Hard', x: 0.06 }
+      { diff: 'easy', label: 'Easy', x: easyX },
+      { diff: 'normal', label: 'Normal', x: normalX },
+      { diff: 'hard', label: 'Hard', x: hardX }
     ];
     for (const d of diffs) {
       const btn = new SpatialButton({
@@ -186,7 +213,7 @@ export class DashboardHUD {
       accentColor: theme.seafoamSoft,
       onSelect: () => this.callbacks.onToggleGaze()
     });
-    this.btnGaze.mesh.position.set(0.48, Y_SETTINGS_ROW1, MENU_Z);
+    this.btnGaze.mesh.position.set(gazeX, Y_SETTINGS_ROW1, MENU_Z);
     this.settingsGroup.add(this.btnGaze.mesh);
     this.settingsInteractives.push(this.btnGaze.mesh);
 
@@ -199,12 +226,12 @@ export class DashboardHUD {
       accentColor: theme.seafoam,
       onSelect: () => this.callbacks.onToggleMute()
     });
-    this.btnMute.mesh.position.set(0.8, Y_SETTINGS_ROW1, MENU_Z);
+    this.btnMute.mesh.position.set(muteX, Y_SETTINGS_ROW1, MENU_Z);
     this.settingsGroup.add(this.btnMute.mesh);
     this.settingsInteractives.push(this.btnMute.mesh);
 
     this.btnDisplayMode = new SpatialButton({
-      width: 0.72,
+      width: 0.68,
       height: 0.13,
       label: '表示: Preview',
       fontSize: 24,
@@ -212,12 +239,12 @@ export class DashboardHUD {
       accentColor: theme.seafoam,
       onSelect: () => this.callbacks.onToggleXRDisplay()
     });
-    this.btnDisplayMode.mesh.position.set(-0.41, Y_SETTINGS_ROW2, MENU_Z);
+    this.btnDisplayMode.mesh.position.set(displayX, Y_SETTINGS_ROW2, MENU_Z);
     this.settingsGroup.add(this.btnDisplayMode.mesh);
     this.settingsInteractives.push(this.btnDisplayMode.mesh);
 
     const btnRecenter = new SpatialButton({
-      width: 0.36,
+      width: 0.34,
       height: 0.13,
       label: 'UIリセット',
       fontSize: 26,
@@ -225,15 +252,15 @@ export class DashboardHUD {
       accentColor: theme.seafoam,
       onSelect: () => this.callbacks.onRecenter()
     });
-    btnRecenter.mesh.position.set(0.2, Y_SETTINGS_ROW2, MENU_Z);
+    btnRecenter.mesh.position.set(recenterX, Y_SETTINGS_ROW2, MENU_Z);
     this.settingsGroup.add(btnRecenter.mesh);
     this.settingsInteractives.push(btnRecenter.mesh);
 
     const pointerDefs: { label: string; x: number; yaw: number; pitch: number; reset?: boolean }[] = [
-      { label: '◀', x: 0.48, yaw: 1.2, pitch: 0 },
-      { label: '▼', x: 0.62, yaw: 0, pitch: -1 },
-      { label: '▲', x: 0.76, yaw: 0, pitch: 1 },
-      { label: '中央', x: 0.96, yaw: 0, pitch: 0, reset: true }
+      { label: '◀', x: yawL, yaw: 1.2, pitch: 0 },
+      { label: '▼', x: pitchD, yaw: 0, pitch: -1 },
+      { label: '▲', x: pitchU, yaw: 0, pitch: 1 },
+      { label: '中央', x: resetX, yaw: 0, pitch: 0, reset: true }
     ];
     for (const p of pointerDefs) {
       const btn = new SpatialButton({

@@ -4,6 +4,13 @@ import { GazeReticle } from '../ui/GazeReticle';
 
 export type ActiveInputKind = 'Mouse' | 'Gaze' | 'Controller' | 'Hand Pinch';
 
+/** World-space tip used as a slice blade. Positions are reused every frame. */
+export interface BladeTip {
+  active: boolean;
+  position: THREE.Vector3;
+  direction: THREE.Vector3;
+}
+
 export interface InteractiveCallbacks {
   onHover?: (obj: THREE.Object3D) => void;
   onBlur?: (obj: THREE.Object3D) => void;
@@ -45,6 +52,23 @@ export class InputManager {
   private mouseActive = false;
   private mouseMovedAt = 0;
   private mouseHovered: THREE.Object3D | null = null;
+  private pointerBladeHeld = false;
+  private menuRaysSuppressed = false;
+
+  private static readonly TIP_OFFSET = 0.12;
+  private static readonly MOUSE_BLADE_DISTANCE = 0.55;
+
+  private readonly bladeTips: BladeTip[] = [
+    { active: false, position: new THREE.Vector3(), direction: new THREE.Vector3() },
+    { active: false, position: new THREE.Vector3(), direction: new THREE.Vector3() }
+  ];
+  private readonly desktopBlade: BladeTip = {
+    active: false,
+    position: new THREE.Vector3(),
+    direction: new THREE.Vector3()
+  };
+  private readonly bladePlane = new THREE.Plane();
+  private readonly bladeHit = new THREE.Vector3();
 
   private gazeEnabled = true;
   private gazeDwellDuration = 0.85;
@@ -184,24 +208,32 @@ export class InputManager {
   private setupDesktopPointer(): void {
     const canvas = this.xrManager.renderer.domElement;
 
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || this.xrManager.isPresenting()) return;
+      this.pointerBladeHeld = true;
+      this.writeMouseNDC(e);
+    });
+
     canvas.addEventListener('pointermove', (e) => {
       if (this.xrManager.isPresenting()) return;
-      const rect = canvas.getBoundingClientRect();
-      this.mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      this.mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-      this.mouseActive = true;
-      this.mouseMovedAt = performance.now();
+      this.writeMouseNDC(e);
     });
 
     canvas.addEventListener('pointerleave', () => {
       this.mouseActive = false;
+      this.pointerBladeHeld = false;
       if (this.mouseHovered) {
         this.dispatchBlur(this.mouseHovered);
         this.mouseHovered = null;
       }
     });
 
+    window.addEventListener('pointerup', (e) => {
+      if (e.button === 0) this.pointerBladeHeld = false;
+    });
+
     canvas.addEventListener('pointerup', (e) => {
+      if (e.button === 0) this.pointerBladeHeld = false;
       if (this.xrManager.isPresenting()) return;
       if (e.button !== 0 || this.xrManager.wasPointerDragged()) return;
 
@@ -250,6 +282,67 @@ export class InputManager {
 
   public getActiveInputKind(): ActiveInputKind {
     return this.activeInputKind;
+  }
+
+  /** Hide the long UI laser while a short slice blade is drawn instead. Hits still work. */
+  public setMenuRaysSuppressed(suppressed: boolean): void {
+    this.menuRaysSuppressed = suppressed;
+    if (suppressed) {
+      for (const slot of this.controllers) {
+        slot.line.visible = false;
+      }
+    }
+  }
+
+  /**
+   * Connected controller tips, 0.12m along local -Z.
+   * The returned vectors are overwritten on the next call.
+   */
+  public getControllerTips(): readonly BladeTip[] {
+    for (let i = 0; i < this.bladeTips.length; i++) {
+      const tip = this.bladeTips[i];
+      const slot = this.controllers[i];
+      tip.active = Boolean(slot && slot.connected && this.xrManager.isPresenting());
+      if (!tip.active || !slot) continue;
+      this.tempMatrix.identity().extractRotation(slot.controller.matrixWorld);
+      tip.direction.set(0, 0, -1).applyMatrix4(this.tempMatrix).normalize();
+      tip.position.setFromMatrixPosition(slot.controller.matrixWorld);
+      tip.position.addScaledVector(tip.direction, InputManager.TIP_OFFSET);
+    }
+    return this.bladeTips;
+  }
+
+  /**
+   * Left-drag point on a plane 0.55m in front of the desktop camera.
+   * The returned vectors are overwritten on the next call.
+   */
+  public getDesktopBlade(): BladeTip {
+    const tip = this.desktopBlade;
+    tip.active = false;
+    if (this.xrManager.isPresenting() || !this.pointerBladeHeld || !this.mouseActive) {
+      return tip;
+    }
+    const camera = this.xrManager.camera;
+    this.raycaster.setFromCamera(this.mouseNDC, camera);
+    this.tempDir.set(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
+    this.tempPos.copy(camera.position).addScaledVector(this.tempDir, InputManager.MOUSE_BLADE_DISTANCE);
+    this.bladePlane.setFromNormalAndCoplanarPoint(this.tempDir, this.tempPos);
+    const hit = this.raycaster.ray.intersectPlane(this.bladePlane, this.bladeHit);
+    if (!hit) return tip;
+    tip.active = true;
+    tip.position.copy(hit);
+    tip.direction.copy(this.tempDir);
+    return tip;
+  }
+
+  private writeMouseNDC(e: PointerEvent): void {
+    const canvas = this.xrManager.renderer.domElement;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    this.mouseNDC.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    this.mouseNDC.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    this.mouseActive = true;
+    this.mouseMovedAt = performance.now();
   }
 
   private setActiveInputKind(kind: ActiveInputKind): void {
@@ -333,7 +426,7 @@ export class InputManager {
         continue;
       }
 
-      slot.line.visible = true;
+      slot.line.visible = !this.menuRaysSuppressed;
       const hit = this.raycastFromController(slot.controller);
       if (hit) {
         anyControllerHovering = true;

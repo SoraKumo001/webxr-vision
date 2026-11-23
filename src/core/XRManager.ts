@@ -26,6 +26,7 @@ export class XRManager {
   private pitch = 0;
   private isDragging = false;
   private dragMoved = false;
+  private desktopDragLookEnabled = true;
   private lastPointerX = 0;
   private lastPointerY = 0;
   private readonly pressedKeys = new Set<string>();
@@ -105,6 +106,7 @@ export class XRManager {
       }
       this.lastPointerX = e.clientX;
       this.lastPointerY = e.clientY;
+      if (!this.desktopDragLookEnabled) return;
 
       const sens = this.isShiftHeld() ? 0.001 : 0.0028;
       this.yaw -= dx * sens;
@@ -155,6 +157,11 @@ export class XRManager {
 
   public wasPointerDragged(): boolean {
     return this.dragMoved;
+  }
+
+  /** Slice mode uses left-drag as a blade, so desktop look-drag can be paused. */
+  public setDesktopDragLookEnabled(enabled: boolean): void {
+    this.desktopDragLookEnabled = enabled;
   }
 
   public resetDesktopCamera(): void {

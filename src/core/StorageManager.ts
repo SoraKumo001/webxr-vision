@@ -3,7 +3,8 @@ export type TrainingModeId =
   | 'peripheral'
   | 'gabor-patch'
   | 'binocular'
-  | 'aquatic-relax';
+  | 'aquatic-relax'
+  | 'slice';
 
 export type Difficulty = 'easy' | 'normal' | 'hard';
 
@@ -44,7 +45,8 @@ function createDefaultStats(): VisionStats {
       peripheral: createDefaultModeStats(),
       'gabor-patch': createDefaultModeStats(),
       binocular: createDefaultModeStats(),
-      'aquatic-relax': createDefaultModeStats()
+      'aquatic-relax': createDefaultModeStats(),
+      slice: createDefaultModeStats()
     },
     history: []
   };
@@ -79,7 +81,8 @@ export class StorageManager {
           peripheral: normalizeModeStats(parsed.modes?.peripheral),
           'gabor-patch': normalizeModeStats(parsed.modes?.['gabor-patch']),
           binocular: normalizeModeStats(parsed.modes?.binocular),
-          'aquatic-relax': normalizeModeStats(parsed.modes?.['aquatic-relax'])
+          'aquatic-relax': normalizeModeStats(parsed.modes?.['aquatic-relax']),
+          slice: normalizeModeStats(parsed.modes?.slice)
         },
         history: Array.isArray(parsed.history)
           ? parsed.history
