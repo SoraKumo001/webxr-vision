@@ -31,7 +31,8 @@ export class GaborPatchMode implements ITrainingMode {
   public readonly group = new THREE.Group();
 
   private readonly arena = new THREE.Group();
-  private readonly orbitPath: THREE.Line;
+  private readonly orbitPath: THREE.Mesh;
+  private readonly orbitPathMat: THREE.ShaderMaterial;
   private readonly targetGroup = new THREE.Group();
   private readonly softOrb: ReturnType<typeof createSoftOrb>;
   private readonly trail: ReturnType<typeof createMotionTrail>;
@@ -58,19 +59,41 @@ export class GaborPatchMode implements ITrainingMode {
     this.group.add(this.arena);
     this.groupFade = new GroupFade(this.group);
 
-    const pathPts: THREE.Vector3[] = [];
-    for (let i = 0; i <= 64; i++) {
-      const a = (i / 64) * Math.PI * 2;
-      pathPts.push(new THREE.Vector3(Math.cos(a), Math.sin(a), 0));
-    }
-    this.orbitPath = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints(pathPts),
-      new THREE.LineBasicMaterial({
-        color: themeHex.modePursuit,
-        transparent: true,
-        opacity: 0.28
-      })
-    );
+    this.orbitPathMat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      uniforms: {
+        uColor: { value: new THREE.Color(themeHex.modePursuit) },
+        uTime: { value: 0 },
+        uDir: { value: -1 },
+        uOpacity: { value: 0.55 }
+      },
+      vertexShader: /* glsl */ `
+        varying vec2 vLocal;
+        void main() {
+          vLocal = position.xy;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform vec3 uColor;
+        uniform float uTime;
+        uniform float uDir;
+        uniform float uOpacity;
+        varying vec2 vLocal;
+
+        void main() {
+          float ang = atan(vLocal.y, vLocal.x);
+          float flow = 0.5 + 0.5 * sin(ang * 4.0 - uTime * 2.6 * uDir);
+          float pulse = pow(flow, 2.5);
+          vec3 col = mix(uColor, vec3(1.0, 0.96, 0.85), pulse * 0.45);
+          gl_FragColor = vec4(col, (0.22 + 0.55 * pulse) * uOpacity);
+        }
+      `
+    });
+    this.orbitPath = new THREE.Mesh(new THREE.RingGeometry(0.985, 1.015, 96), this.orbitPathMat);
     this.orbitPath.position.set(0, -0.02, -2.3);
     this.arena.add(this.orbitPath);
 
@@ -208,6 +231,9 @@ export class GaborPatchMode implements ITrainingMode {
     this.targetGroup.position.set(x, y, -2.3);
     this.targetGroup.lookAt(this.arena.position);
     this.trail.push(x, y, -2.3);
+    this.softOrb.update(dt);
+    this.orbitPathMat.uniforms.uTime.value = this.elapsedInMode;
+    this.orbitPathMat.uniforms.uDir.value = signed;
 
     const pulse = 0.95 + Math.sin(this.elapsedInMode * 2.2) * 0.1;
     this.softOrb.group.scale.setScalar(pulse);

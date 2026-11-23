@@ -63,6 +63,8 @@ export class AquaticRelaxMode implements ITrainingMode {
   private readonly waterSurfaceMesh: THREE.Mesh;
   private readonly bubblesMesh: THREE.Mesh;
   private readonly waterMat: THREE.ShaderMaterial;
+  private readonly godRaysMat: THREE.ShaderMaterial;
+  private readonly planktonMat: THREE.ShaderMaterial;
 
   private readonly domeBackdrop: THREE.Mesh;
   private readonly relaxPanel: SpatialTextPanel;
@@ -144,6 +146,124 @@ export class AquaticRelaxMode implements ITrainingMode {
     this.bubblesMesh = new THREE.Mesh(envGeo.bubblesGeometry, this.waterMat);
     this.arena.add(this.bubblesMesh);
 
+    // Volumetric-style underwater god rays (inside envGroup so MR passthrough stays clean)
+    this.godRaysMat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      uniforms: {
+        uTime: { value: 0 },
+        uDeepMode: { value: 0 }
+      },
+      vertexShader: /* glsl */ `
+        varying vec2 vUv;
+        varying vec3 vNormalView;
+        varying vec3 vViewDir;
+        void main() {
+          vUv = uv;
+          vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+          vNormalView = normalize(normalMatrix * normal);
+          vViewDir = normalize(-mvPos.xyz);
+          gl_Position = projectionMatrix * mvPos;
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform float uTime;
+        uniform float uDeepMode;
+        varying vec2 vUv;
+        varying vec3 vNormalView;
+        varying vec3 vViewDir;
+
+        void main() {
+          float ndv = abs(dot(normalize(vNormalView), normalize(vViewDir)));
+          float edgeFade = pow(ndv, 1.6);
+          float vertFade = smoothstep(0.0, 0.35, vUv.y) * (1.0 - smoothstep(0.55, 1.0, vUv.y));
+          float shimmer = 0.72 + 0.28 * sin(vUv.x * 18.849 + uTime * 0.45);
+          vec3 col = mix(vec3(0.22, 0.72, 0.78), vec3(0.14, 0.42, 0.78), uDeepMode);
+          float alpha = edgeFade * vertFade * shimmer * mix(0.085, 0.045, uDeepMode);
+          gl_FragColor = vec4(col, alpha);
+        }
+      `
+    });
+    const rayGeo = new THREE.CylinderGeometry(0.32, 1.45, 4.3, 18, 1, true);
+    const raySpecs = [
+      { x: -3.2, z: -4.2, rx: 0.14, rz: -0.18 },
+      { x: 2.8, z: -4.8, rx: 0.12, rz: 0.16 },
+      { x: 0.2, z: -5.8, rx: 0.18, rz: -0.08 },
+      { x: -4.8, z: 0.6, rx: -0.06, rz: -0.2 },
+      { x: 4.5, z: 0.9, rx: -0.08, rz: 0.18 },
+      { x: -1.8, z: 4.6, rx: -0.16, rz: -0.1 },
+      { x: 2.2, z: 4.2, rx: -0.14, rz: 0.12 }
+    ];
+    for (const s of raySpecs) {
+      const ray = new THREE.Mesh(rayGeo, this.godRaysMat);
+      ray.position.set(s.x, 0.35, s.z);
+      ray.rotation.set(s.rx, 0, s.rz);
+      this.envGroup.add(ray);
+    }
+
+    // Bioluminescent plankton / marine snow drifting through the sanctuary
+    const planktonCount = 220;
+    const pPos = new Float32Array(planktonCount * 3);
+    const pPhase = new Float32Array(planktonCount);
+    for (let i = 0; i < planktonCount; i++) {
+      const r = 1.6 + Math.random() * 6.8;
+      const ang = Math.random() * Math.PI * 2;
+      pPos[i * 3] = Math.cos(ang) * r;
+      pPos[i * 3 + 1] = -1.2 + Math.random() * 3.3;
+      pPos[i * 3 + 2] = Math.sin(ang) * r;
+      pPhase[i] = Math.random();
+    }
+    const planktonGeo = new THREE.BufferGeometry();
+    planktonGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+    planktonGeo.setAttribute('aPhase', new THREE.BufferAttribute(pPhase, 1));
+    this.planktonMat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: {
+        uTime: { value: 0 },
+        uDeepMode: { value: 0 }
+      },
+      vertexShader: /* glsl */ `
+        attribute float aPhase;
+        uniform float uTime;
+        varying float vPhase;
+        varying float vPulse;
+        void main() {
+          vPhase = aPhase;
+          vec3 p = position;
+          p.x += sin(uTime * 0.28 + aPhase * 12.0) * 0.25;
+          p.y += cos(uTime * 0.22 + aPhase * 9.0) * 0.22;
+          p.z += sin(uTime * 0.24 + aPhase * 15.0) * 0.25;
+          vPulse = 0.45 + 0.55 * sin(uTime * (0.8 + mod(aPhase, 0.6)) + aPhase * 18.0);
+          vec4 mvPos = modelViewMatrix * vec4(p, 1.0);
+          gl_Position = projectionMatrix * mvPos;
+          float dist = max(0.8, -mvPos.z);
+          gl_PointSize = clamp(0.08 * (260.0 / dist), 2.0, 18.0);
+        }
+      `,
+      fragmentShader: /* glsl */ `
+        uniform float uDeepMode;
+        varying float vPhase;
+        varying float vPulse;
+        void main() {
+          float d = length(gl_PointCoord - vec2(0.5));
+          if (d > 0.5) discard;
+          float glow = pow(1.0 - d * 2.0, 2.0);
+          vec3 reefCol = mix(vec3(0.45, 0.95, 0.92), vec3(0.95, 0.86, 0.58), step(0.7, vPhase));
+          vec3 deepCol = mix(vec3(0.22, 0.92, 1.0), vec3(0.92, 0.42, 0.88), step(0.55, vPhase));
+          vec3 col = mix(reefCol, deepCol, uDeepMode);
+          float alpha = glow * vPulse * mix(0.45, 0.72, uDeepMode);
+          gl_FragColor = vec4(col, alpha);
+        }
+      `
+    });
+    const plankton = new THREE.Points(planktonGeo, this.planktonMat);
+    plankton.frustumCulled = false;
+    this.arena.add(plankton);
+
     // Breathing & creature inspection guide panel
     this.relaxPanel = new SpatialTextPanel(1.28, 0.22, 960, 168);
     this.relaxPanel.mesh.position.set(0, -0.31, -1.85);
@@ -193,8 +313,10 @@ export class AquaticRelaxMode implements ITrainingMode {
         this.btnTheme.setLabel(
           this.theme === 'reef' ? 'テーマ: サンゴ礁' : 'テーマ: 深海クラゲ'
         );
-        (this.domeBackdrop.material as THREE.ShaderMaterial).uniforms.uDeepMode.value =
-          this.theme === 'deep-jelly' ? 1.0 : 0.0;
+        const isDeep = this.theme === 'deep-jelly' ? 1.0 : 0.0;
+        (this.domeBackdrop.material as THREE.ShaderMaterial).uniforms.uDeepMode.value = isDeep;
+        this.godRaysMat.uniforms.uDeepMode.value = isDeep;
+        this.planktonMat.uniforms.uDeepMode.value = isDeep;
         this.populateSanctuary();
       }
     });
@@ -529,6 +651,8 @@ export class AquaticRelaxMode implements ITrainingMode {
 
     this.substrateMat.uniforms.uTime.value = elapsed;
     this.waterMat.uniforms.uTime.value = elapsed;
+    this.godRaysMat.uniforms.uTime.value = elapsed;
+    this.planktonMat.uniforms.uTime.value = elapsed;
 
     // 10-second slow deep-breathing cycle: 4s inhale, 6s exhale
     const cyclePos = this.elapsedInMode % 10;

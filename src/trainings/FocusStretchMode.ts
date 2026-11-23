@@ -30,6 +30,13 @@ export class FocusStretchMode implements ITrainingMode {
   private readonly targetGroup = new THREE.Group();
   private readonly softOrb: ReturnType<typeof createSoftOrb>;
   private readonly breathRing: THREE.Mesh;
+  private readonly turnRipple: THREE.Mesh;
+  private readonly turnRippleMat: THREE.MeshBasicMaterial;
+  private turnRippleLife = 1;
+  private isTargetHovered = false;
+  private readonly nearColor = new THREE.Color(themeHex.amberSoft);
+  private readonly farColor = new THREE.Color(themeHex.modeFocus);
+  private readonly lerpColor = new THREE.Color();
   private readonly distancePanel: SpatialTextPanel;
   private readonly groupFade: GroupFade;
 
@@ -69,6 +76,20 @@ export class FocusStretchMode implements ITrainingMode {
     this.breathRing = new THREE.Mesh(ringGeo, ringMat);
     this.targetGroup.add(this.breathRing);
 
+    this.turnRippleMat = new THREE.MeshBasicMaterial({
+      color: themeHex.seafoam,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+    this.turnRippleMat.userData.skipGroupFade = true;
+    this.turnRipple = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.255, 48), this.turnRippleMat);
+    this.turnRipple.visible = false;
+    this.turnRipple.userData.skipGroupFade = true;
+    this.targetGroup.add(this.turnRipple);
+
     this.distancePanel = new SpatialTextPanel(0.7, 0.24, 512, 176);
     this.distancePanel.mesh.position.set(0, 0.33, 0);
     this.targetGroup.add(this.distancePanel.mesh);
@@ -76,10 +97,11 @@ export class FocusStretchMode implements ITrainingMode {
     const targetCallbacks: InteractiveCallbacks = {
       gazeEnabled: false,
       onHover: () => {
-        (this.softOrb.core.material as THREE.MeshBasicMaterial).color.setHex(themeHex.success);
+        this.isTargetHovered = true;
+        this.softOrb.setColor(themeHex.success);
       },
       onBlur: () => {
-        (this.softOrb.core.material as THREE.MeshBasicMaterial).color.setHex(themeHex.modeFocus);
+        this.isTargetHovered = false;
       }
     };
     this.targetGroup.userData = targetCallbacks;
@@ -231,13 +253,34 @@ export class FocusStretchMode implements ITrainingMode {
     const scale = Math.max(0.75, 0.65 + this.currentDistMeters * 0.14);
     this.targetGroup.scale.setScalar(scale);
     this.targetGroup.lookAt(this.arena.position);
+    this.softOrb.update(dt);
     this.softOrb.glow.rotation.y += dt * 0.4;
+
+    if (!this.isTargetHovered) {
+      const distT = THREE.MathUtils.clamp((this.currentDistMeters - 0.4) / 11.0, 0, 1);
+      this.lerpColor.lerpColors(this.nearColor, this.farColor, distT);
+      this.softOrb.setColor(this.lerpColor.getHex());
+    }
 
     const movingOut = z < prevZ;
     if (movingOut !== this.lastMovingOut && this.elapsedInMode > 0.5) {
       this.lastMovingOut = movingOut;
       this.audio.playBreathCue(!movingOut);
+      this.turnRippleLife = 0;
+      this.turnRipple.visible = true;
+      this.turnRippleMat.color.setHex(movingOut ? themeHex.success : themeHex.modeFocus);
     }
+
+    if (this.turnRippleLife < 1) {
+      this.turnRippleLife = Math.min(1, this.turnRippleLife + dt * 1.15);
+      const ease = 1 - Math.pow(1 - this.turnRippleLife, 2);
+      this.turnRipple.scale.setScalar(1 + ease * 1.6);
+      this.turnRippleMat.opacity = (1 - this.turnRippleLife) * 0.55;
+      if (this.turnRippleLife >= 1) {
+        this.turnRipple.visible = false;
+      }
+    }
+
     const breathScale = 0.92 + Math.sin(this.elapsedInMode * 2.0) * 0.14;
     this.breathRing.scale.setScalar(breathScale);
 

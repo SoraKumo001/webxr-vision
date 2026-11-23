@@ -30,6 +30,8 @@ export class BinocularMode implements ITrainingMode {
   private readonly leftTarget = new THREE.Group();
   private readonly rightTarget = new THREE.Group();
   private readonly centerGuide: THREE.Mesh;
+  private readonly fusionHalo: THREE.Mesh;
+  private readonly fusionHaloMat: THREE.MeshBasicMaterial;
   private readonly infoPanel: SpatialTextPanel;
   private readonly uiChrome: ModeUiChrome;
   private readonly groupFade: GroupFade;
@@ -62,6 +64,19 @@ export class BinocularMode implements ITrainingMode {
     );
     this.centerGuide.position.set(0, 0.06, -2.165);
     this.arena.add(this.centerGuide);
+
+    this.fusionHaloMat = new THREE.MeshBasicMaterial({
+      color: themeHex.seafoam,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+    this.fusionHaloMat.userData.skipGroupFade = true;
+    this.fusionHalo = new THREE.Mesh(new THREE.RingGeometry(0.11, 0.15, 48), this.fusionHaloMat);
+    this.fusionHalo.position.set(0, 0.06, -2.17);
+    this.arena.add(this.fusionHalo);
 
     this.buildEyeTarget(this.leftTarget, themeHex.stereoLeft, '+');
     this.buildEyeTarget(this.rightTarget, themeHex.stereoRight, '○');
@@ -214,6 +229,10 @@ export class BinocularMode implements ITrainingMode {
     this.leftTarget.scale.setScalar(pulse);
     this.rightTarget.scale.setScalar(pulse);
     this.centerGuide.scale.setScalar(1.05 + (1 - norm) * 0.25);
+
+    const fusionStrength = THREE.MathUtils.clamp(1 - this.currentOffset / 0.022, 0, 1);
+    this.fusionHalo.scale.setScalar(0.95 + fusionStrength * 0.45);
+    this.fusionHaloMat.opacity = fusionStrength * 0.42;
 
     this.infoPanel.draw((ctx, w, h) => {
       this.infoPanel.drawRoundedBg(theme.inkPanel, theme.modeBinocular, 22);

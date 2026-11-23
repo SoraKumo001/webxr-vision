@@ -230,6 +230,7 @@ export class PeripheralMode implements ITrainingMode {
 
     this.targetGroup.position.set(x, y, depth);
     this.targetGroup.lookAt(this.arena.position);
+    this.softOrb.update(dt);
     this.guideRing.scale.setScalar(0.95 + Math.sin(this.elapsedInMode * 2.4) * 0.12);
     this.trail.push(x, y, depth);
 

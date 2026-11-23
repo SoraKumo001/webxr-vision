@@ -14,8 +14,62 @@ const MIN_SLICE_SPEED = 1.35;
 const MAX_SLICE_SEGMENT = 0.85;
 const FLYER_POOL = 6;
 const SHARD_POOL = 10;
+const RIBBON_POINTS = 14;
+const WAVE_POOL = 6;
+const SPARK_BURST_POOL = 4;
+const SPARKS_PER_BURST = 24;
 
 const DISC_COLORS = [themeHex.amber, themeHex.seafoam, themeHex.modeFocus] as const;
+
+const RIBBON_VERT = /* glsl */ `
+  attribute float aProgress;
+  varying float vProgress;
+  varying vec2 vUv;
+
+  void main() {
+    vProgress = aProgress;
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const RIBBON_FRAG = /* glsl */ `
+  uniform vec3 uColor;
+  uniform float uIntensity;
+  varying float vProgress;
+  varying vec2 vUv;
+
+  void main() {
+    float edge = 1.0 - abs(vUv.y * 2.0 - 1.0);
+    float core = pow(edge, 2.2);
+    float tail = pow(clamp(1.0 - vProgress, 0.0, 1.0), 1.45);
+    vec3 col = mix(uColor, vec3(0.95, 1.0, 1.0), core * 0.65);
+    float alpha = (edge * 0.55 + core * 0.55) * tail * uIntensity;
+    gl_FragColor = vec4(col, alpha);
+  }
+`;
+
+const SPARK_VERT = /* glsl */ `
+  uniform float uSize;
+  void main() {
+    vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * mvPos;
+    float dist = max(0.35, -mvPos.z);
+    gl_PointSize = clamp(uSize * (280.0 / dist), 2.0, 48.0);
+  }
+`;
+
+const SPARK_FRAG = /* glsl */ `
+  uniform vec3 uColor;
+  uniform float uAlpha;
+  void main() {
+    float d = length(gl_PointCoord - vec2(0.5));
+    if (d > 0.5) discard;
+    float glow = pow(1.0 - d * 2.0, 1.9);
+    vec3 col = mix(uColor, vec3(1.0), glow * 0.6);
+    gl_FragColor = vec4(col, glow * uAlpha);
+  }
+`;
 
 function roundSeconds(difficulty: Difficulty): number {
   if (difficulty === 'easy') return 90;
@@ -64,30 +118,135 @@ interface BladeTrack {
   prev: THREE.Vector3;
   curr: THREE.Vector3;
   hasPrev: boolean;
-  line: THREE.Line;
+  history: THREE.Vector3[];
+  historyCount: number;
+  mesh: THREE.Mesh;
+  mat: THREE.ShaderMaterial;
+  positions: Float32Array;
 }
 
-function makeBladeLine(): THREE.Line {
-  const geo = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(),
-    new THREE.Vector3()
-  ]);
-  const mat = new THREE.LineBasicMaterial({
-    color: themeHex.seafoam,
+interface ShockWave {
+  mesh: THREE.Mesh;
+  mat: THREE.MeshBasicMaterial;
+  active: boolean;
+  life: number;
+  maxLife: number;
+}
+
+interface SparkBurst {
+  points: THREE.Points;
+  mat: THREE.ShaderMaterial;
+  positions: Float32Array;
+  velocities: Float32Array;
+  active: boolean;
+  life: number;
+  maxLife: number;
+}
+
+function makeBladeRibbon(): BladeTrack {
+  const positions = new Float32Array(RIBBON_POINTS * 2 * 3);
+  const progress = new Float32Array(RIBBON_POINTS * 2);
+  const uvs = new Float32Array(RIBBON_POINTS * 2 * 2);
+  const indices: number[] = [];
+
+  for (let i = 0; i < RIBBON_POINTS; i++) {
+    const t = i / (RIBBON_POINTS - 1);
+    progress[i * 2] = t;
+    progress[i * 2 + 1] = t;
+    uvs[i * 4] = t;
+    uvs[i * 4 + 1] = 0;
+    uvs[i * 4 + 2] = t;
+    uvs[i * 4 + 3] = 1;
+    if (i < RIBBON_POINTS - 1) {
+      const a = i * 2;
+      const b = a + 1;
+      const c = a + 2;
+      const d = a + 3;
+      indices.push(a, c, b, b, c, d);
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('aProgress', new THREE.BufferAttribute(progress, 1));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+
+  const mat = new THREE.ShaderMaterial({
+    vertexShader: RIBBON_VERT,
+    fragmentShader: RIBBON_FRAG,
     transparent: true,
-    opacity: 0.95
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    uniforms: {
+      uColor: { value: new THREE.Color(themeHex.seafoam) },
+      uIntensity: { value: 0.92 }
+    }
   });
-  const line = new THREE.Line(geo, mat);
-  line.visible = false;
-  line.frustumCulled = false;
-  return line;
+  mat.userData.skipGroupFade = true;
+
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.visible = false;
+  mesh.frustumCulled = false;
+  mesh.userData.skipGroupFade = true;
+
+  const history: THREE.Vector3[] = [];
+  for (let i = 0; i < RIBBON_POINTS; i++) {
+    history.push(new THREE.Vector3());
+  }
+
+  return {
+    prev: new THREE.Vector3(),
+    curr: new THREE.Vector3(),
+    hasPrev: false,
+    history,
+    historyCount: 0,
+    mesh,
+    mat,
+    positions
+  };
 }
 
-function setLineEnds(line: THREE.Line, a: THREE.Vector3, b: THREE.Vector3): void {
-  const attr = line.geometry.getAttribute('position') as THREE.BufferAttribute;
-  attr.setXYZ(0, a.x, a.y, a.z);
-  attr.setXYZ(1, b.x, b.y, b.z);
-  attr.needsUpdate = true;
+function createShockWave(): ShockWave {
+  const mat = new THREE.MeshBasicMaterial({
+    color: themeHex.amberSoft,
+    transparent: true,
+    opacity: 0,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+  });
+  mat.userData.skipGroupFade = true;
+  const mesh = new THREE.Mesh(new THREE.RingGeometry(0.13, 0.19, 36), mat);
+  mesh.visible = false;
+  mesh.userData.skipGroupFade = true;
+  return { mesh, mat, active: false, life: 0, maxLife: 0.36 };
+}
+
+function createSparkBurst(): SparkBurst {
+  const positions = new Float32Array(SPARKS_PER_BURST * 3);
+  const velocities = new Float32Array(SPARKS_PER_BURST * 3);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const mat = new THREE.ShaderMaterial({
+    vertexShader: SPARK_VERT,
+    fragmentShader: SPARK_FRAG,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    uniforms: {
+      uColor: { value: new THREE.Color(themeHex.amberSoft) },
+      uSize: { value: 0.07 },
+      uAlpha: { value: 0 }
+    }
+  });
+  mat.userData.skipGroupFade = true;
+  const points = new THREE.Points(geo, mat);
+  points.visible = false;
+  points.frustumCulled = false;
+  points.userData.skipGroupFade = true;
+  return { points, mat, positions, velocities, active: false, life: 0, maxLife: 0.45 };
 }
 
 function createPuck(radius: number, thickness: number, color: number): Flyer {
@@ -207,6 +366,8 @@ export class SliceMode implements ITrainingMode {
   private readonly flyers: Flyer[] = [];
   private readonly shards: Shard[] = [];
   private readonly blades: BladeTrack[] = [];
+  private readonly waves: ShockWave[] = [];
+  private readonly sparkBursts: SparkBurst[] = [];
 
   private readonly forward = new THREE.Vector3();
   private readonly right = new THREE.Vector3();
@@ -215,6 +376,8 @@ export class SliceMode implements ITrainingMode {
   private readonly swing = new THREE.Vector3();
   private readonly side = new THREE.Vector3();
   private readonly closest = new THREE.Vector3();
+  private readonly ribbonTan = new THREE.Vector3();
+  private readonly ribbonSide = new THREE.Vector3();
   private readonly up = new THREE.Vector3(0, 1, 0);
 
   private difficulty: Difficulty = 'normal';
@@ -245,14 +408,21 @@ export class SliceMode implements ITrainingMode {
     }
 
     for (let i = 0; i < 3; i++) {
-      const line = makeBladeLine();
-      this.fx.add(line);
-      this.blades.push({
-        prev: new THREE.Vector3(),
-        curr: new THREE.Vector3(),
-        hasPrev: false,
-        line
-      });
+      const track = makeBladeRibbon();
+      this.fx.add(track.mesh);
+      this.blades.push(track);
+    }
+
+    for (let i = 0; i < WAVE_POOL; i++) {
+      const wave = createShockWave();
+      this.fx.add(wave.mesh);
+      this.waves.push(wave);
+    }
+
+    for (let i = 0; i < SPARK_BURST_POOL; i++) {
+      const burst = createSparkBurst();
+      this.fx.add(burst.points);
+      this.sparkBursts.push(burst);
     }
 
     this.infoPanel = new SpatialTextPanel(1.35, 0.22, 960, 160);
@@ -375,6 +545,40 @@ export class SliceMode implements ITrainingMode {
       }
     }
 
+    for (const wave of this.waves) {
+      if (!wave.active) continue;
+      wave.life += dt;
+      const p = wave.life / wave.maxLife;
+      if (p >= 1) {
+        wave.active = false;
+        wave.mesh.visible = false;
+        continue;
+      }
+      const ease = 1 - Math.pow(1 - p, 2);
+      wave.mesh.scale.setScalar(0.65 + ease * 2.85);
+      wave.mat.opacity = (1 - p) * 0.78;
+    }
+
+    for (const burst of this.sparkBursts) {
+      if (!burst.active) continue;
+      burst.life += dt;
+      const p = burst.life / burst.maxLife;
+      if (p >= 1) {
+        burst.active = false;
+        burst.points.visible = false;
+        continue;
+      }
+      for (let i = 0; i < SPARKS_PER_BURST; i++) {
+        const idx = i * 3;
+        burst.velocities[idx + 1] -= 2.8 * dt;
+        burst.positions[idx] += burst.velocities[idx] * dt;
+        burst.positions[idx + 1] += burst.velocities[idx + 1] * dt;
+        burst.positions[idx + 2] += burst.velocities[idx + 2] * dt;
+      }
+      burst.points.geometry.attributes.position.needsUpdate = true;
+      burst.mat.uniforms.uAlpha.value = Math.pow(1 - p, 1.4) * 0.95;
+    }
+
     this.drawInfo();
     return this.remaining > 0;
   }
@@ -454,13 +658,18 @@ export class SliceMode implements ITrainingMode {
   private applyBlade(track: BladeTrack, tip: BladeTip | undefined, dt: number): void {
     if (!tip?.active) {
       track.hasPrev = false;
-      track.line.visible = false;
+      track.historyCount = 0;
+      track.mesh.visible = false;
       return;
     }
     track.curr.copy(tip.position);
     if (!track.hasPrev) {
       track.prev.copy(track.curr);
       track.hasPrev = true;
+      for (let i = 0; i < RIBBON_POINTS; i++) {
+        track.history[i].copy(track.curr);
+      }
+      track.historyCount = 1;
       this.showRestingBlade(track, tip);
       return;
     }
@@ -471,19 +680,78 @@ export class SliceMode implements ITrainingMode {
       this.trySlice(track.prev, track.curr);
     }
 
-    if (dist > 0.01) {
-      setLineEnds(track.line, track.prev, track.curr);
+    if (dist > 0.004 && dist < MAX_SLICE_SEGMENT) {
+      for (let i = RIBBON_POINTS - 1; i > 0; i--) {
+        track.history[i].copy(track.history[i - 1]);
+      }
+      track.history[0].copy(track.curr);
+      track.historyCount = Math.min(RIBBON_POINTS, track.historyCount + 1);
+      this.updateRibbonGeometry(track, speed);
     } else {
-      this.showRestingBlade(track, tip);
+      // Decay tail toward head when stationary
+      for (let i = RIBBON_POINTS - 1; i > 0; i--) {
+        track.history[i].lerp(track.history[i - 1], Math.min(1, dt * 18));
+      }
+      track.history[0].copy(track.curr);
+      if (track.curr.distanceToSquared(track.history[RIBBON_POINTS - 1]) < 0.002) {
+        this.showRestingBlade(track, tip);
+      } else {
+        this.updateRibbonGeometry(track, speed);
+      }
     }
-    track.line.visible = true;
+
+    track.mesh.visible = true;
     track.prev.copy(track.curr);
   }
 
+  private updateRibbonGeometry(track: BladeTrack, speed: number): void {
+    const pos = track.positions;
+    const isFast = speed >= MIN_SLICE_SPEED;
+    track.mat.uniforms.uIntensity.value = isFast ? 1.0 : 0.7;
+    track.mat.uniforms.uColor.value.setHex(isFast ? themeHex.laserHit : themeHex.seafoam);
+
+    for (let i = 0; i < RIBBON_POINTS; i++) {
+      const p = track.history[i];
+      if (i < RIBBON_POINTS - 1) {
+        this.ribbonTan.subVectors(p, track.history[i + 1]);
+      } else {
+        this.ribbonTan.subVectors(track.history[i - 1], p);
+      }
+      if (this.ribbonTan.lengthSq() < 1e-7) {
+        this.ribbonTan.copy(this.forward);
+      } else {
+        this.ribbonTan.normalize();
+      }
+      this.ribbonSide.crossVectors(this.ribbonTan, this.up);
+      if (this.ribbonSide.lengthSq() < 1e-5) {
+        this.ribbonSide.crossVectors(this.ribbonTan, this.right);
+      }
+      this.ribbonSide.normalize();
+
+      const t = i / (RIBBON_POINTS - 1);
+      const halfWidth = (1 - t * 0.85) * (isFast ? 0.032 : 0.018);
+
+      const idx = i * 6;
+      pos[idx] = p.x + this.ribbonSide.x * halfWidth;
+      pos[idx + 1] = p.y + this.ribbonSide.y * halfWidth;
+      pos[idx + 2] = p.z + this.ribbonSide.z * halfWidth;
+      pos[idx + 3] = p.x - this.ribbonSide.x * halfWidth;
+      pos[idx + 4] = p.y - this.ribbonSide.y * halfWidth;
+      pos[idx + 5] = p.z - this.ribbonSide.z * halfWidth;
+    }
+    track.mesh.geometry.attributes.position.needsUpdate = true;
+  }
+
   private showRestingBlade(track: BladeTrack, tip: BladeTip): void {
-    this.swing.copy(tip.position).addScaledVector(tip.direction, -0.2);
-    setLineEnds(track.line, this.swing, tip.position);
-    track.line.visible = true;
+    this.swing.copy(tip.position).addScaledVector(tip.direction, -0.22);
+    for (let i = 0; i < RIBBON_POINTS; i++) {
+      const t = i / (RIBBON_POINTS - 1);
+      track.history[i].lerpVectors(tip.position, this.swing, t);
+    }
+    track.mat.uniforms.uIntensity.value = 0.65;
+    track.mat.uniforms.uColor.value.setHex(themeHex.seafoam);
+    this.updateRibbonGeometry(track, 0);
+    track.mesh.visible = true;
   }
 
   private trySlice(a: THREE.Vector3, b: THREE.Vector3): void {
@@ -506,6 +774,8 @@ export class SliceMode implements ITrainingMode {
     const color = flyer.body.color.getHex();
     this.launchShard(flyer.root.position, flyer.velocity, this.side, 1, color);
     this.launchShard(flyer.root.position, flyer.velocity, this.side, -1, color);
+    this.launchShockWave(flyer.root.position, color);
+    this.launchSparkBurst(flyer.root.position, color);
     this.deactivateFlyer(flyer);
     this.score += 1;
     if (this.score % 5 === 0) this.audio.playSuccess();
@@ -538,6 +808,44 @@ export class SliceMode implements ITrainingMode {
     shard.mat.emissive.setHex(color);
   }
 
+  private launchShockWave(origin: THREE.Vector3, color: number): void {
+    const wave = this.waves.find((w) => !w.active);
+    if (!wave) return;
+    wave.active = true;
+    wave.life = 0;
+    wave.mesh.position.copy(origin);
+    wave.mesh.lookAt(this.arena.position);
+    wave.mesh.scale.setScalar(0.65);
+    wave.mat.color.setHex(color);
+    wave.mat.opacity = 0.8;
+    wave.mesh.visible = true;
+  }
+
+  private launchSparkBurst(origin: THREE.Vector3, color: number): void {
+    const burst = this.sparkBursts.find((b) => !b.active);
+    if (!burst) return;
+    burst.active = true;
+    burst.life = 0;
+    burst.mat.uniforms.uColor.value.setHex(color);
+    burst.mat.uniforms.uAlpha.value = 0.95;
+
+    for (let i = 0; i < SPARKS_PER_BURST; i++) {
+      const idx = i * 3;
+      burst.positions[idx] = origin.x;
+      burst.positions[idx + 1] = origin.y;
+      burst.positions[idx + 2] = origin.z;
+
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const speed = 1.2 + Math.random() * 2.4;
+      burst.velocities[idx] = Math.sin(phi) * Math.cos(theta) * speed;
+      burst.velocities[idx + 1] = Math.cos(phi) * speed + 0.45;
+      burst.velocities[idx + 2] = Math.sin(phi) * Math.sin(theta) * speed;
+    }
+    burst.points.geometry.attributes.position.needsUpdate = true;
+    burst.points.visible = true;
+  }
+
   private deactivateFlyer(flyer: Flyer): void {
     flyer.active = false;
     flyer.root.visible = false;
@@ -549,9 +857,18 @@ export class SliceMode implements ITrainingMode {
       shard.active = false;
       shard.root.visible = false;
     }
+    for (const wave of this.waves) {
+      wave.active = false;
+      wave.mesh.visible = false;
+    }
+    for (const burst of this.sparkBursts) {
+      burst.active = false;
+      burst.points.visible = false;
+    }
     for (const blade of this.blades) {
       blade.hasPrev = false;
-      blade.line.visible = false;
+      blade.historyCount = 0;
+      blade.mesh.visible = false;
     }
   }
 

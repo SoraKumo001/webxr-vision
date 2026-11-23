@@ -43,19 +43,28 @@ export class GroupFade {
 
   private applyOpacity(alpha: number): void {
     this.root.traverse((obj) => {
+      if (obj.userData?.skipGroupFade) return;
       const mesh = obj as THREE.Mesh | THREE.Line | THREE.Points;
       const mat = mesh.material;
       if (!mat) return;
       const mats = Array.isArray(mat) ? mat : [mat];
       for (const m of mats) {
+        if (m.userData?.skipGroupFade) continue;
+        const shaderMat = m as THREE.ShaderMaterial;
+        if (shaderMat.isShaderMaterial && shaderMat.uniforms?.uOpacity) {
+          if (shaderMat.userData._fadeBaseOpacity === undefined) {
+            shaderMat.userData._fadeBaseOpacity = Number(shaderMat.uniforms.uOpacity.value ?? 1);
+          }
+          shaderMat.uniforms.uOpacity.value = shaderMat.userData._fadeBaseOpacity * alpha;
+          continue;
+        }
         const anyMat = m as THREE.Material & { opacity?: number; transparent?: boolean };
         if (typeof anyMat.opacity !== 'number') continue;
-        if (!anyMat.userData._fadeBaseOpacity) {
+        if (anyMat.userData._fadeBaseOpacity === undefined) {
           anyMat.userData._fadeBaseOpacity = anyMat.opacity;
         }
         anyMat.transparent = true;
         anyMat.opacity = anyMat.userData._fadeBaseOpacity * alpha;
-        anyMat.needsUpdate = true;
       }
     });
   }
