@@ -32,13 +32,20 @@ const MODE_META: { id: TrainingModeId; title: string; color: string; bgColor?: s
     color: theme.modeAquatic,
     bgColor: theme.modeAquaticBg
   },
-  { id: 'slice', title: '6. スライス', color: theme.amber, bgColor: theme.inkPanelSolid }
+  { id: 'slice', title: '6. スライス', color: theme.amber, bgColor: theme.inkPanelSolid },
+  {
+    id: 'campfire',
+    title: '7. たき火',
+    color: theme.modeCampfire,
+    bgColor: theme.modeCampfireBg
+  }
 ];
 
 export class DashboardHUD {
   public readonly group = new THREE.Group();
   private readonly menuGroup = new THREE.Group();
   private readonly trainingHudGroup = new THREE.Group();
+  private readonly trainingControlsGroup = new THREE.Group();
   private readonly settingsGroup = new THREE.Group();
   private readonly menuFade: GroupFade;
   private readonly trainingFade: GroupFade;
@@ -104,20 +111,22 @@ export class DashboardHUD {
 
     MODE_META.forEach((meta, idx) => {
       const isSlice = meta.id === 'slice';
+      const isCampfire = meta.id === 'campfire';
       const isAquatic = meta.id === 'aquatic-relax';
+      const isBottomRow = isSlice || isCampfire;
       const col = idx % 2;
       const row = Math.floor(idx / 2);
-      const x = isSlice ? 0 : isAquatic ? COL_R : col === 0 ? COL_L : COL_R;
-      const y = isSlice ? Y_SLICE : isAquatic ? Y_ROW2 : row === 0 ? Y_ROW0 : Y_ROW1;
-      const height = isSlice ? SLICE_H : isAquatic ? ROW2_H : MODE_H;
-      const width = isSlice ? 1.88 : 0.92;
+      const x = isSlice ? COL_L : isCampfire ? COL_R : isAquatic ? COL_R : col === 0 ? COL_L : COL_R;
+      const y = isBottomRow ? Y_SLICE : isAquatic ? Y_ROW2 : row === 0 ? Y_ROW0 : Y_ROW1;
+      const height = isBottomRow ? SLICE_H : isAquatic ? ROW2_H : MODE_H;
+      const width = 0.92;
 
       const btn = new SpatialButton({
         width,
         height,
         label: meta.title,
-        subLabel: isSlice ? '飛んでくる光を振って切る' : '0回  |  累計 0分0秒',
-        fontSize: isSlice ? 32 : isAquatic ? 30 : 34,
+        subLabel: '0回  |  累計 0分0秒',
+        fontSize: isBottomRow || isAquatic ? 30 : 34,
         bgColor: meta.bgColor ?? theme.inkPanelSolid,
         borderColor: meta.color,
         accentColor: meta.color,
@@ -285,9 +294,11 @@ export class DashboardHUD {
     this.statusBanner.mesh.position.set(0, 0.9, -2.05);
     this.trainingHudGroup.add(this.statusBanner.mesh);
 
-    const chromeZ = -1.7;
-    const actionY = -0.76;
-    const pointerY = -0.92;
+    this.trainingHudGroup.add(this.trainingControlsGroup);
+    this.setTrainingControlsDock('bottom');
+
+    const actionY = 0.08;
+    const pointerY = -0.08;
     const gap = 0.04;
     const stopW = 0.5;
     const hideW = 0.4;
@@ -304,8 +315,8 @@ export class DashboardHUD {
       gazeDwellSeconds: 1.0,
       onSelect: () => this.callbacks.onStopTraining()
     });
-    this.btnStopTraining.mesh.position.set(-actionTotal / 2 + stopW / 2, actionY, chromeZ);
-    this.trainingHudGroup.add(this.btnStopTraining.mesh);
+    this.btnStopTraining.mesh.position.set(-actionTotal / 2 + stopW / 2, actionY, 0);
+    this.trainingControlsGroup.add(this.btnStopTraining.mesh);
     this.trainingInteractives.push(this.btnStopTraining.mesh);
 
     this.btnHideUi = new SpatialButton({
@@ -318,8 +329,8 @@ export class DashboardHUD {
       gazeDwellSeconds: 0.75,
       onSelect: () => this.callbacks.onHideTrainingUi()
     });
-    this.btnHideUi.mesh.position.set(actionTotal / 2 - hideW / 2, actionY, chromeZ);
-    this.trainingHudGroup.add(this.btnHideUi.mesh);
+    this.btnHideUi.mesh.position.set(actionTotal / 2 - hideW / 2, actionY, 0);
+    this.trainingControlsGroup.add(this.btnHideUi.mesh);
     this.trainingInteractives.push(this.btnHideUi.mesh);
 
     const padW = 0.17;
@@ -351,8 +362,8 @@ export class DashboardHUD {
           else this.callbacks.onAdjustGazePointer(item.dYaw, item.dPitch);
         }
       });
-      btn.mesh.position.set(x, pointerY, chromeZ);
-      this.trainingHudGroup.add(btn.mesh);
+      btn.mesh.position.set(x, pointerY, 0);
+      this.trainingControlsGroup.add(btn.mesh);
       this.trainingInteractives.push(btn.mesh);
       padX += item.width + gap;
     }
@@ -396,6 +407,18 @@ export class DashboardHUD {
     if (!this.isTrainingActive) return;
     if (hidden) this.trainingFade.hide();
     else this.trainingFade.show();
+  }
+
+  public setTrainingControlsDock(dock: 'bottom' | 'right'): void {
+    if (dock === 'right') {
+      this.trainingControlsGroup.position.set(1.06, -0.58, -1.62);
+      this.trainingControlsGroup.rotation.set(0, -0.46, 0);
+      this.trainingControlsGroup.scale.setScalar(0.68);
+    } else {
+      this.trainingControlsGroup.position.set(0, -0.84, -1.7);
+      this.trainingControlsGroup.rotation.set(0, 0, 0);
+      this.trainingControlsGroup.scale.setScalar(1);
+    }
   }
 
   public isTraining(): boolean {
@@ -486,10 +509,15 @@ export class DashboardHUD {
       ctx.font = `700 34px ${canvasFont}`;
       ctx.fillText(state.title, 40, h * 0.26);
 
+      const unlimited = state.remainingSeconds < 0;
       ctx.textAlign = 'right';
-      ctx.fillStyle = state.remainingSeconds <= 10 ? theme.dangerSoft : theme.text;
+      ctx.fillStyle = unlimited
+        ? theme.amberSoft
+        : state.remainingSeconds <= 10
+          ? theme.dangerSoft
+          : theme.text;
       ctx.font = `700 38px ${canvasFont}`;
-      ctx.fillText(`残り ${state.remainingSeconds}s`, w - 40, h * 0.26);
+      ctx.fillText(unlimited ? '∞ リラックス' : `残り ${state.remainingSeconds}s`, w - 40, h * 0.26);
 
       ctx.textAlign = 'left';
       ctx.fillStyle = theme.text;

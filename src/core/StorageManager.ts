@@ -4,9 +4,16 @@ export type TrainingModeId =
   | 'gabor-patch'
   | 'binocular'
   | 'aquatic-relax'
-  | 'slice';
+  | 'slice'
+  | 'campfire';
 
 export type Difficulty = 'easy' | 'normal' | 'hard';
+
+export interface UserSettings {
+  difficulty: Difficulty;
+  gazeEnabled: boolean;
+  muted: boolean;
+}
 
 export interface SessionRecord {
   modeId: TrainingModeId;
@@ -28,6 +35,19 @@ export interface VisionStats {
 }
 
 const STORAGE_KEY = 'webxr_vision_stats_v2';
+const SETTINGS_STORAGE_KEY = 'webxr_vision_settings_v1';
+
+function createDefaultSettings(): UserSettings {
+  return {
+    difficulty: 'normal',
+    gazeEnabled: true,
+    muted: false
+  };
+}
+
+function isDifficulty(val: unknown): val is Difficulty {
+  return val === 'easy' || val === 'normal' || val === 'hard';
+}
 
 function createDefaultModeStats(): ModeStats {
   return {
@@ -46,7 +66,8 @@ function createDefaultStats(): VisionStats {
       'gabor-patch': createDefaultModeStats(),
       binocular: createDefaultModeStats(),
       'aquatic-relax': createDefaultModeStats(),
-      slice: createDefaultModeStats()
+      slice: createDefaultModeStats(),
+      campfire: createDefaultModeStats()
     },
     history: []
   };
@@ -64,9 +85,50 @@ function normalizeModeStats(raw: Partial<ModeStats> | undefined): ModeStats {
 
 export class StorageManager {
   private stats: VisionStats;
+  private settings: UserSettings;
 
   constructor() {
     this.stats = this.load();
+    this.settings = this.loadSettings();
+  }
+
+  private loadSettings(): UserSettings {
+    const defaults = createDefaultSettings();
+    try {
+      const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+      if (!raw) return defaults;
+      const parsed = JSON.parse(raw) as Partial<UserSettings>;
+      return {
+        difficulty: isDifficulty(parsed.difficulty) ? parsed.difficulty : defaults.difficulty,
+        gazeEnabled:
+          typeof parsed.gazeEnabled === 'boolean' ? parsed.gazeEnabled : defaults.gazeEnabled,
+        muted: typeof parsed.muted === 'boolean' ? parsed.muted : defaults.muted
+      };
+    } catch {
+      return defaults;
+    }
+  }
+
+  private saveSettings(): void {
+    try {
+      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(this.settings));
+    } catch {
+      // Ignore storage quota or private mode failures.
+    }
+  }
+
+  public getSettings(): UserSettings {
+    return { ...this.settings };
+  }
+
+  public updateSettings(patch: Partial<UserSettings>): void {
+    this.settings = {
+      difficulty: isDifficulty(patch.difficulty) ? patch.difficulty : this.settings.difficulty,
+      gazeEnabled:
+        typeof patch.gazeEnabled === 'boolean' ? patch.gazeEnabled : this.settings.gazeEnabled,
+      muted: typeof patch.muted === 'boolean' ? patch.muted : this.settings.muted
+    };
+    this.saveSettings();
   }
 
   private load(): VisionStats {
@@ -82,7 +144,8 @@ export class StorageManager {
           'gabor-patch': normalizeModeStats(parsed.modes?.['gabor-patch']),
           binocular: normalizeModeStats(parsed.modes?.binocular),
           'aquatic-relax': normalizeModeStats(parsed.modes?.['aquatic-relax']),
-          slice: normalizeModeStats(parsed.modes?.slice)
+          slice: normalizeModeStats(parsed.modes?.slice),
+          campfire: normalizeModeStats(parsed.modes?.campfire)
         },
         history: Array.isArray(parsed.history)
           ? parsed.history

@@ -26,6 +26,8 @@ export const theme = {
   modeBinocular: '#7eb8c9',
   modeAquatic: '#38d9c0',
   modeAquaticBg: '#042f2e',
+  modeCampfire: '#ff8a4c',
+  modeCampfireBg: '#26120a',
   autoAccent: '#c4a882',
   stereoLeft: '#22d3ee',
   stereoRight: '#f472b6',

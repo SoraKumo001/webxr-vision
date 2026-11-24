@@ -6,6 +6,7 @@ import { DisplayMode, XRManager } from './XRManager';
 import { CalmNightEnv } from '../environments/CalmNightEnv';
 import { AquaticRelaxMode } from '../trainings/AquaticRelaxMode';
 import { BinocularMode } from '../trainings/BinocularMode';
+import { CampfireMode } from '../trainings/CampfireMode';
 import { FocusStretchMode } from '../trainings/FocusStretchMode';
 import { GaborPatchMode } from '../trainings/GaborPatchMode';
 import { ITrainingMode } from '../trainings/ITrainingMode';
@@ -62,6 +63,11 @@ export class App {
     this.xrManager = new XRManager(canvas);
     this.input = new InputManager(this.xrManager, this.reticle);
 
+    const savedSettings = this.storage.getSettings();
+    this.difficulty = savedSettings.difficulty;
+    this.input.setGazeEnabled(savedSettings.gazeEnabled);
+    this.audio.setMuted(savedSettings.muted);
+
     this.xrManager.scene.add(this.env.group);
     this.xrManager.scene.add(this.reticle.group);
 
@@ -71,6 +77,7 @@ export class App {
     const binocularMode = new BinocularMode(this.audio);
     const aquaticMode = new AquaticRelaxMode(this.audio, () => this.xrManager.getDisplayMode());
     const sliceMode = new SliceMode(this.audio, this.input);
+    const campfireMode = new CampfireMode(this.audio, () => this.xrManager.getDisplayMode());
 
     this.modes = new Map<TrainingModeId, ITrainingMode>([
       [focusMode.id, focusMode],
@@ -78,7 +85,8 @@ export class App {
       [gaborMode.id, gaborMode],
       [binocularMode.id, binocularMode],
       [aquaticMode.id, aquaticMode],
-      [sliceMode.id, sliceMode]
+      [sliceMode.id, sliceMode],
+      [campfireMode.id, campfireMode]
     ]);
 
     for (const mode of this.modes.values()) {
@@ -105,17 +113,22 @@ export class App {
       },
       onToggleXRDisplay: () => void this.toggleXRDisplay(),
       onToggleGaze: () => {
-        this.input.setGazeEnabled(!this.input.isGazeEnabled());
+        const nextGaze = !this.input.isGazeEnabled();
+        this.input.setGazeEnabled(nextGaze);
+        this.storage.updateSettings({ gazeEnabled: nextGaze });
         this.audio.playSelect();
         this.syncDashboardStatus();
       },
       onChangeDifficulty: (diff) => {
         this.difficulty = diff;
+        this.storage.updateSettings({ difficulty: diff });
         this.audio.playSelect();
         this.syncDashboardStatus();
       },
       onToggleMute: () => {
-        this.audio.setMuted(!this.audio.isMuted());
+        const nextMuted = !this.audio.isMuted();
+        this.audio.setMuted(nextMuted);
+        this.storage.updateSettings({ muted: nextMuted });
         this.audio.playSelect();
         this.syncDashboardStatus();
       },
@@ -151,7 +164,11 @@ export class App {
 
   private bindCallbacks(): void {
     this.xrManager.onDisplayModeChange = (mode: DisplayMode) => {
-      this.env.setVisible(mode !== 'mr' && this.activeMode?.id !== 'aquatic-relax');
+      this.env.setVisible(
+        mode !== 'mr' &&
+          this.activeMode?.id !== 'aquatic-relax' &&
+          this.activeMode?.id !== 'campfire'
+      );
       if (this.badgeMode) {
         this.badgeMode.textContent =
           mode === 'mr' ? '表示: MR' : mode === 'vr' ? '表示: VR Night' : '表示: Preview';
@@ -330,10 +347,15 @@ export class App {
 
     this.xrManager.getHeadPose(this.headPos, this.headQuat);
     this.dashboard.recenter(this.headPos, this.headQuat);
+    this.dashboard.setTrainingControlsDock(modeId === 'campfire' ? 'right' : 'bottom');
     this.dashboard.setTrainingActive(true);
 
     this.activeMode = mode;
-    this.env.setVisible(this.xrManager.getDisplayMode() !== 'mr' && modeId !== 'aquatic-relax');
+    this.env.setVisible(
+      this.xrManager.getDisplayMode() !== 'mr' &&
+        modeId !== 'aquatic-relax' &&
+        modeId !== 'campfire'
+    );
     this.input.setMenuRaysSuppressed(modeId === 'slice');
     this.xrManager.setDesktopDragLookEnabled(modeId !== 'slice');
     this.activeMode.start(this.difficulty, this.headPos, this.headQuat);
@@ -388,6 +410,7 @@ export class App {
       summary: `オートモード完了 (1〜4連続 合計 ${this.autoTotalSeconds}秒)`
     };
     this.audio.playSuccess();
+    this.dashboard.setTrainingControlsDock('bottom');
     this.dashboard.setTrainingActive(false, summaryResult);
     this.syncInteractiveTargets();
 
@@ -417,6 +440,7 @@ export class App {
     }
 
     this.audio.playSuccess();
+    this.dashboard.setTrainingControlsDock('bottom');
     this.dashboard.setTrainingActive(false, finalResult);
     this.syncInteractiveTargets();
 

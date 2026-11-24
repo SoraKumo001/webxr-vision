@@ -9,6 +9,19 @@ export class AudioManager {
   private wetBus: GainNode | null = null;
   private noiseBuffer: AudioBuffer | null = null;
 
+  private campfireSource: AudioBufferSourceNode | null = null;
+  private campfireLfoLow: OscillatorNode | null = null;
+  private campfireLfoMid: OscillatorNode | null = null;
+  private campfireLfoLowGain: GainNode | null = null;
+  private campfireLfoMidGain: GainNode | null = null;
+  private campfireLowFilter: BiquadFilterNode | null = null;
+  private campfireMidFilter: BiquadFilterNode | null = null;
+  private campfireMasterGain: GainNode | null = null;
+  private campfireDrySend: GainNode | null = null;
+  private campfireWetSend: GainNode | null = null;
+  private campfireTargetGain = 0.08;
+  private campfireStopTimer: number | null = null;
+
   public unlock(): void {
     if (!this.ctx) {
       const AudioCtx =
@@ -25,14 +38,17 @@ export class AudioManager {
 
   public setMuted(muted: boolean): void {
     this.muted = muted;
+    if (this.ctx && this.campfireMasterGain) {
+      const target = muted ? 0.0001 : this.campfireTargetGain;
+      this.campfireMasterGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.04);
+    }
   }
 
   public isMuted(): boolean {
     return this.muted;
   }
 
-  private ensureContext(): AudioContext | null {
-    if (this.muted) return null;
+  private ensureContextRaw(): AudioContext | null {
     if (!this.ctx) {
       this.unlock();
     }
@@ -43,6 +59,11 @@ export class AudioManager {
       this.buildMasterGraph(this.ctx);
     }
     return this.ctx;
+  }
+
+  private ensureContext(): AudioContext | null {
+    if (this.muted) return null;
+    return this.ensureContextRaw();
   }
 
   private buildMasterGraph(ctx: AudioContext): void {
@@ -468,6 +489,296 @@ export class AudioManager {
       this.routeVoice(ctx, gain, 0.42);
       osc.start(t0);
       osc.stop(t0 + 0.12);
+    }
+  }
+
+  public startCampfireAmbient(intensity = 1.0): void {
+    const ctx = this.ensureContextRaw();
+    if (!ctx || !this.noiseBuffer) return;
+
+    this.stopCampfireAmbientImmediate();
+
+    const clamped = Math.max(0.4, Math.min(2.0, intensity));
+    this.campfireTargetGain = 0.055 + clamped * 0.04;
+
+    const now = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuffer;
+    src.loop = true;
+
+    const lowFilter = ctx.createBiquadFilter();
+    lowFilter.type = 'lowpass';
+    lowFilter.frequency.setValueAtTime(140 + clamped * 45, now);
+    lowFilter.Q.value = 0.7;
+
+    const lowGain = ctx.createGain();
+    lowGain.gain.value = 0.82;
+
+    const midFilter = ctx.createBiquadFilter();
+    midFilter.type = 'bandpass';
+    midFilter.frequency.setValueAtTime(580 + clamped * 160, now);
+    midFilter.Q.value = 1.2;
+
+    const midGain = ctx.createGain();
+    midGain.gain.value = 0.32;
+
+    const lfoLow = ctx.createOscillator();
+    lfoLow.type = 'sine';
+    lfoLow.frequency.value = 0.23;
+    const lfoLowGain = ctx.createGain();
+    lfoLowGain.gain.value = 32;
+    lfoLow.connect(lfoLowGain);
+    lfoLowGain.connect(lowFilter.frequency);
+
+    const lfoMid = ctx.createOscillator();
+    lfoMid.type = 'sine';
+    lfoMid.frequency.value = 0.57;
+    const lfoMidGain = ctx.createGain();
+    lfoMidGain.gain.value = 110;
+    lfoMid.connect(lfoMidGain);
+    lfoMidGain.connect(midFilter.frequency);
+
+    const masterGain = ctx.createGain();
+    masterGain.gain.setValueAtTime(0.0001, now);
+    const initialTarget = this.muted ? 0.0001 : this.campfireTargetGain;
+    masterGain.gain.linearRampToValueAtTime(initialTarget, now + 0.4);
+
+    src.connect(lowFilter);
+    lowFilter.connect(lowGain);
+    lowGain.connect(masterGain);
+
+    src.connect(midFilter);
+    midFilter.connect(midGain);
+    midGain.connect(masterGain);
+
+    const drySend = ctx.createGain();
+    drySend.gain.value = 0.85;
+    masterGain.connect(drySend);
+    drySend.connect(this.dryBus ?? ctx.destination);
+
+    let wetSend: GainNode | null = null;
+    if (this.wetBus) {
+      wetSend = ctx.createGain();
+      wetSend.gain.value = 0.18;
+      masterGain.connect(wetSend);
+      wetSend.connect(this.wetBus);
+    }
+
+    src.start(now);
+    lfoLow.start(now);
+    lfoMid.start(now);
+
+    this.campfireSource = src;
+    this.campfireLfoLow = lfoLow;
+    this.campfireLfoMid = lfoMid;
+    this.campfireLfoLowGain = lfoLowGain;
+    this.campfireLfoMidGain = lfoMidGain;
+    this.campfireLowFilter = lowFilter;
+    this.campfireMidFilter = midFilter;
+    this.campfireMasterGain = masterGain;
+    this.campfireDrySend = drySend;
+    this.campfireWetSend = wetSend;
+  }
+
+  public setCampfireIntensity(intensity: number): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.campfireMasterGain || !this.campfireLowFilter || !this.campfireMidFilter) {
+      return;
+    }
+    const clamped = Math.max(0.4, Math.min(2.0, intensity));
+    this.campfireTargetGain = 0.055 + clamped * 0.04;
+    const now = ctx.currentTime;
+    this.campfireLowFilter.frequency.setTargetAtTime(140 + clamped * 45, now, 0.25);
+    this.campfireMidFilter.frequency.setTargetAtTime(580 + clamped * 160, now, 0.25);
+    const targetGain = this.muted ? 0.0001 : this.campfireTargetGain;
+    this.campfireMasterGain.gain.setTargetAtTime(targetGain, now, 0.2);
+  }
+
+  private stopCampfireAmbientImmediate(): void {
+    if (this.campfireStopTimer !== null) {
+      window.clearTimeout(this.campfireStopTimer);
+      this.campfireStopTimer = null;
+    }
+    const nodes = [
+      this.campfireSource,
+      this.campfireLfoLow,
+      this.campfireLfoMid,
+      this.campfireLfoLowGain,
+      this.campfireLfoMidGain,
+      this.campfireLowFilter,
+      this.campfireMidFilter,
+      this.campfireMasterGain,
+      this.campfireDrySend,
+      this.campfireWetSend
+    ];
+    try {
+      this.campfireSource?.stop();
+    } catch {
+      // Ignore already-stopped nodes
+    }
+    try {
+      this.campfireLfoLow?.stop();
+    } catch {
+      // Ignore already-stopped nodes
+    }
+    try {
+      this.campfireLfoMid?.stop();
+    } catch {
+      // Ignore already-stopped nodes
+    }
+    for (const node of nodes) {
+      try {
+        node?.disconnect();
+      } catch {
+        // Ignore disconnect failures
+      }
+    }
+    this.campfireSource = null;
+    this.campfireLfoLow = null;
+    this.campfireLfoMid = null;
+    this.campfireLfoLowGain = null;
+    this.campfireLfoMidGain = null;
+    this.campfireLowFilter = null;
+    this.campfireMidFilter = null;
+    this.campfireMasterGain = null;
+    this.campfireDrySend = null;
+    this.campfireWetSend = null;
+  }
+
+  public stopCampfireAmbient(): void {
+    const ctx = this.ctx;
+    const masterGain = this.campfireMasterGain;
+    const src = this.campfireSource;
+    const lfoLow = this.campfireLfoLow;
+    const lfoMid = this.campfireLfoMid;
+    const extraNodes = [
+      this.campfireLfoLowGain,
+      this.campfireLfoMidGain,
+      this.campfireLowFilter,
+      this.campfireMidFilter,
+      masterGain,
+      this.campfireDrySend,
+      this.campfireWetSend
+    ];
+
+    if (!ctx || !masterGain || !src) {
+      this.stopCampfireAmbientImmediate();
+      return;
+    }
+
+    if (this.campfireStopTimer !== null) {
+      window.clearTimeout(this.campfireStopTimer);
+      this.campfireStopTimer = null;
+    }
+
+    // Clear active references right away so a quick restart does not collide.
+    this.campfireSource = null;
+    this.campfireLfoLow = null;
+    this.campfireLfoMid = null;
+    this.campfireLfoLowGain = null;
+    this.campfireLfoMidGain = null;
+    this.campfireLowFilter = null;
+    this.campfireMidFilter = null;
+    this.campfireMasterGain = null;
+    this.campfireDrySend = null;
+    this.campfireWetSend = null;
+
+    const now = ctx.currentTime;
+    masterGain.gain.cancelScheduledValues(now);
+    masterGain.gain.setValueAtTime(Math.max(0.0001, masterGain.gain.value), now);
+    masterGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.24);
+
+    this.campfireStopTimer = window.setTimeout(() => {
+      this.campfireStopTimer = null;
+      for (const n of [src, lfoLow, lfoMid]) {
+        try {
+          n?.stop();
+        } catch {
+          // Ignore already-stopped nodes
+        }
+      }
+      for (const n of [src, lfoLow, lfoMid, ...extraNodes]) {
+        try {
+          n?.disconnect();
+        } catch {
+          // Ignore disconnect failures
+        }
+      }
+    }, 280);
+  }
+
+  public playCampfireCrackle(intensity = 1.0, pan = 0, isBurst = false): void {
+    const ctx = this.ensureContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+    const clamped = Math.max(0.4, Math.min(2.0, intensity));
+
+    if (isBurst) {
+      // Sharp high-frequency transient at the moment wood pops
+      const burstGain = (0.08 + Math.random() * 0.04) * Math.min(1.35, 0.75 + clamped * 0.35);
+      this.playNoiseBurst(
+        ctx,
+        now,
+        0.01 + Math.random() * 0.012,
+        'bandpass',
+        3400 + Math.random() * 3200,
+        2400 + Math.random() * 1400,
+        1.8,
+        burstGain,
+        0.18,
+        pan
+      );
+
+      // Dry wood snap body
+      this.playNoiseBurst(
+        ctx,
+        now + 0.004,
+        0.025 + Math.random() * 0.015,
+        'bandpass',
+        1150 + Math.random() * 950,
+        780,
+        2.2,
+        burstGain * 0.85,
+        0.2,
+        pan
+      );
+      return;
+    }
+
+    const freqStart = 2400 + Math.random() * 2400;
+    const freqEnd = Math.max(1200, freqStart * (0.65 + Math.random() * 0.25));
+    const duration = 0.015 + Math.random() * 0.03;
+    const gain = (0.04 + Math.random() * 0.045) * Math.min(1.35, 0.75 + clamped * 0.35);
+
+    this.playNoiseBurst(
+      ctx,
+      now,
+      duration,
+      'bandpass',
+      freqStart,
+      freqEnd,
+      2.5,
+      gain,
+      0.16,
+      pan
+    );
+
+    // Occasional drier wood snap
+    if (Math.random() < 0.35) {
+      const snapStart = now + Math.random() * 0.025;
+      this.playNoiseBurst(
+        ctx,
+        snapStart,
+        0.024 + Math.random() * 0.02,
+        'bandpass',
+        1250 + Math.random() * 650,
+        900,
+        2.2,
+        gain * 0.75,
+        0.18,
+        pan
+      );
     }
   }
 }
